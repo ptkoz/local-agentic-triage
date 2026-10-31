@@ -4,7 +4,7 @@ from unittest.mock import patch
 from local_agentic_triage.mail.imap import Mailbox
 from helpers import make_config
 
-SELECT=b'* FLAGS (\\Seen HermesLeave)\r\n* OK [PERMANENTFLAGS (\\Seen \\*)] flags\r\n* 3 EXISTS\r\n* OK [UIDVALIDITY 77] valid\r\na1 OK [READ-WRITE] SELECT completed\r\n'
+SELECT=b'* FLAGS (\\Seen HermesLeave)\r\n* OK [PERMANENTFLAGS (\\Seen \\Flagged)] flags\r\n* 3 EXISTS\r\n* OK [UIDVALIDITY 77] valid\r\na1 OK [READ-WRITE] SELECT completed\r\n'
 SEARCH=SELECT+b'* SEARCH 9 12\r\na2 OK SEARCH completed\r\n'
 INTERNALDATE=SELECT+b'* 3 FETCH (UID 9 INTERNALDATE "31-Oct-2026 01:27:00 +0100")\r\na2 OK FETCH completed\r\n'
 def done(output): return subprocess.CompletedProcess([],0,output,b'')
@@ -19,9 +19,9 @@ class HimalayaTests(unittest.TestCase):
             self.assertEqual(box.source_key('9'),'imap:account-two:Inbox%20%22Two%22:77:9')
             calls=run.call_args_list
             self.assertEqual(calls[0].kwargs['input'],b'a1 SELECT "Inbox \\"Two\\""\r\n')
-            self.assertEqual(calls[1].kwargs['input'],b'a1 SELECT "Inbox \\"Two\\""\r\na2 UID SEARCH UNKEYWORD HermesLeave\r\n')
+            self.assertEqual(calls[1].kwargs['input'],b'a1 SELECT "Inbox \\"Two\\""\r\na2 UID SEARCH UNFLAGGED\r\n')
             self.assertEqual(calls[3].args[0][-6:],['message','read','-m','Inbox "Two"','--raw','9'])
-            self.assertEqual(calls[5].args[0][-8:],['imap','store','-m','Inbox "Two"','--flag','HermesLeave','--','9'])
+            self.assertEqual(calls[5].args[0][-8:],['imap','store','-m','Inbox "Two"','--flag','\\Flagged','--','9'])
             self.assertEqual(calls[-3].args[0][-3:],['\\Seen','--','9'])
             self.assertEqual(calls[-1].args[0][-7:],['message','move','--from','Inbox "Two"','--to','Archive \\ Two','9'])
             for call in calls:
@@ -59,9 +59,30 @@ class HimalayaTests(unittest.TestCase):
                 box=Mailbox.connect(make_config())
                 with self.assertRaises(ValueError): box.archive('9')
                 self.assertEqual(run.call_count,3)
-    def test_permanent_keyword_tokens_must_match_exactly(self):
-        output=SELECT.replace(b'(\\Seen \\*)',b'(\\Seen HermesLeaveOther)')
-        with patch('subprocess.run',return_value=done(output)),self.assertRaises(ValueError): Mailbox.connect(make_config())
+    def test_permanent_flagged_is_supported_without_custom_keywords(self):
+        with patch('subprocess.run',return_value=done(SELECT)):
+            self.assertEqual(Mailbox.connect(make_config()).validity,'77')
+
+    def test_permanent_flagged_tokens_must_match_exactly(self):
+        for flags in (b'\\Seen \\*',b'\\Seen HermesLeave',b'\\Seen \\FlaggedOther',b'\\Seen'):
+            with self.subTest(flags=flags):
+                output=SELECT.replace(b'\\Seen \\Flagged',flags)
+                with patch('subprocess.run',return_value=done(output)),self.assertRaisesRegex(ValueError,'^himalaya_flagged_unavailable$'):
+                    Mailbox.connect(make_config())
+
+    def test_candidates_ignore_legacy_markers_and_exclude_flagged(self):
+        messages={'9':{'HermesLeave'},'12':set(),'15':{'HermesLeave','\\Flagged'},'18':{'\\Flagged'}}
+        def respond(argv,**kwargs):
+            request=kwargs['input']
+            if request==b'a1 SELECT "Test Inbox"\r\n':
+                return done(SELECT)
+            self.assertEqual(request,b'a1 SELECT "Test Inbox"\r\na2 UID SEARCH UNFLAGGED\r\n')
+            uids=' '.join(uid for uid,flags in messages.items() if '\\Flagged' not in flags)
+            return done(SELECT+f'* SEARCH {uids}\r\na2 OK SEARCH completed\r\n'.encode('ascii'))
+        with patch('subprocess.run',side_effect=respond) as run:
+            self.assertEqual(Mailbox.connect(make_config()).candidates(),['9','12'])
+            self.assertEqual(run.call_count,2)
+
     def test_all_uids_validates_search_and_validity(self):
         with patch('subprocess.run',side_effect=[done(SELECT),done(SEARCH)]) as run:
             self.assertEqual(Mailbox.connect(make_config()).all_uids(),{'9','12'})

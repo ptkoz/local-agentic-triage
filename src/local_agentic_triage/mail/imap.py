@@ -71,15 +71,15 @@ class Mailbox:
         validity = uid_value(values[0])
         flags = [match.group(1).split() for line in lines
                  if (match := re.fullmatch(r'\* OK \[PERMANENTFLAGS \(([^)]*)\)\](?: .*)?', line))]
-        if len(flags) != 1 or not {'\\*', 'HermesLeave'}.intersection(flags[0]):
-            raise ValueError('himalaya_keywords_unavailable')
+        if len(flags) != 1 or '\\Flagged' not in flags[0]:
+            raise ValueError('himalaya_flagged_unavailable')
         return validity
 
     def candidates(self):
-        return self.search('UNKEYWORD HermesLeave')
+        return self.search('UNFLAGGED')
 
     def search(self, query):
-        if not re.fullmatch(r'(?:UNKEYWORD HermesLeave|UID [1-9][0-9]*)', query):
+        if not re.fullmatch(r'(?:UNFLAGGED|UID [1-9][0-9]*)', query):
             raise ValueError('himalaya_search_invalid')
         output = self.command(['imap', 'raw'], self._select('a2 UID SEARCH ' + query + '\r\n'))
         return self._search_result(output)
@@ -162,7 +162,7 @@ class Mailbox:
     def leave(self, uid):
         uid = self.require_uid(uid)
         self.mutation(['imap', 'store', '-m', self.config.inbox, '--flag',
-                       'HermesLeave', '--', uid], 'Flag(s) successfully added')
+                       '\\Flagged', '--', uid], 'Flag(s) successfully added')
 
     def archive(self, uid):
         uid = self.require_uid(uid)

@@ -69,7 +69,7 @@ the installed application or restart its LaunchAgents.
 
 - selects only the configured Inbox and validates its current `UIDVALIDITY`;
 - verifies that the UID still exists, reads that message without setting flags, bounds the model payload, and calls only the fixed loopback classifier;
-- does not open SQLite, acquire production locks, run Calendar/Hermes, set `HermesLeave`/`Seen`, move mail, or send a report;
+- does not open SQLite, acquire production locks, run Calendar/Hermes, set `\Flagged`/`Seen`, move mail, or send a report;
 - logs only UID, UIDVALIDITY, stage, truncation field names, and a controlled error code;
 - returns 0 if classification currently succeeds and 1 if the replay fails.
 
