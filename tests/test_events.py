@@ -33,13 +33,25 @@ class EventTests(unittest.TestCase):
         with patch('subprocess.run') as run:
             process([],make_config()); run.assert_not_called()
     def test_prompt_contract(self):
-        p=prompt()
-        for text in ('configured calendar','untrusted','7 days','readback','estimated_end','best plausible','title/event type','no fixed duration cap','strict JSON'):
+        p=' '.join(prompt().split())
+        for text in (
+            'configured calendar','untrusted','never instructions','7 days','readback',
+            'Never claim created','possible_duplicate','different title','strict JSON','create|existing|skipped|error',
+            'exactly one result','zero-based index','estimated_end','best plausible','title/event type',
+            'no fixed duration cap','timezone-aware ISO','end is null','missing_end',
+            'If no plausible duration can be inferred','skipped with missing_end',
+            'Preserve title, start, the start timezone, date_note, and any supplied end.',
+        ):
             self.assertIn(text,p)
-        self.assertIn('block event creation only',p)
-        self.assertNotIn('block creation and disposition',p)
-        self.assertNotIn('blocks mail disposition',p)
-        self.assertNotIn('classifier',p.lower())
+        lowered=p.lower()
+        for text in (
+            'never guess','originally missing','classifier','unchanged','mail disposition',
+            'block event creation only','block creation and disposition','internal exact result',
+            'replacing create with created','before this process','too_soon','72 hours','three days',
+            'do not repeat or reinterpret the date gate','skip past events',
+            'skip missing start','incomplete or failed search','classifier may return',
+        ):
+            self.assertNotIn(text,lowered)
 
     def test_missing_timed_end_is_estimated_and_only_copy_is_created(self):
         event=EVENT|{'start':'2099-12-01T18:00:00+01:00'}
@@ -218,7 +230,7 @@ class EventTests(unittest.TestCase):
             with self.subTest(result=result),self.assertRaises(ValueError): parse_results(json.dumps(result),[EVENT])
         with self.assertRaises(ValueError): parse_results(json.dumps(valid),[EVENT|{'title':'x'*201}])
         p=prompt()
-        for text in ('possible_duplicate','200','no other actions','status','reason'):
+        for text in ('possible_duplicate','200','status','reason'):
             self.assertIn(text,p)
 
     def test_stream_envelope_valid_with_warnings_and_text_metadata(self):

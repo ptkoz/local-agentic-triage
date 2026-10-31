@@ -38,7 +38,7 @@ The classifier also requests that exact outer shape with strict JSON Schema,
 then independently applies conditional and temporal validation. Hermes output
 uses bounded line-delimited stream framing: limited leading warnings are
 discarded, session and exit status must match, tool records are forbidden, and
-only the final result text reaches the unchanged decision validator.
+only the final result text reaches the decision validator.
 Hermes has zero tools (`--toolsets none --ignore-rules`) and no skills; it only
 semantically authorizes create/existing/skipped decisions. Fixed JXA reads only
 the configured calendar and creates validated events there, then verifies

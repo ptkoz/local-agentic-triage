@@ -86,7 +86,7 @@ validation, create, or readback failure is contained as an event-enrichment
 failure and does not block mail disposition. Search failure prevents even
 invoking Hermes.
 
-The classifier and its prompt are unchanged and may return incomplete events.
+The classifier may return incomplete event candidates.
 Before any Calendar search or Hermes process starts, fixed code gates every
 classified event. A timed start is eligible only when strictly more than 72 hours
 away in that event's timezone; an all-day start is eligible only when its date is
@@ -97,8 +97,8 @@ events and their corresponding nearby rows to Hermes, then map its results back
 to the original indices while retaining local skips.
 
 Hermes decision results contain exactly index/outcome/reason/estimated_end, one per candidate, under
-status/results. A create decision may estimate an originally missing timed end
-from the title/event type without a fixed duration cap; deterministic validation
+status/results. A create decision for a timed candidate with a null end must estimate
+that end from the title/event type without a fixed duration cap; deterministic validation
 requires an aware ISO timestamp strictly after start. Other estimates are rejected.
 Hermes owns the completion and create decision for eligible events. Fixed code
 only validates that narrow decision, performs the exact configured-Calendar write
@@ -153,8 +153,8 @@ row in the form `Od **…** z dnia …` followed by the summary as a Discord quo
 The displayed date comes from the message's valid Date header or, when that is
 missing, malformed or lacks a timezone, from its IMAP INTERNALDATE. Both are
 captured before disposition and converted to Europe/Warsaw; processing time is
-never substituted. Legacy rows created before either value was retained render
-`data wiadomości niedostępna` and do not block the rest of the report. Each row is
+never substituted. Rows lacking a retained Date or INTERNALDATE render `data
+wiadomości niedostępna` and do not block the rest of the report. Each row is
 marked reported immediately after its own send succeeds. A failed send leaves
 that row and all following rows pending under the frozen window. A record that
 cannot fit the configured Discord limit fails before any delivery; records are
