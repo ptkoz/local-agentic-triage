@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>HERMES_HOME</key>
+		<string>@HOME@/.hermes</string>
+		<key>HOME</key>
+		<string>@HOME@</string>
+		<key>PATH</key>
+		<string>/usr/bin:/bin:/usr/sbin:/sbin</string>
+	</dict>
+	<key>Label</key>
+	<string>local.local-agentic-triage.report</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>@PYTHON@</string>
+		<string>@HOME@/.local/libexec/local-agentic-triage/local-agentic-triage.pyz</string>
+		<string>report</string>
+		<string>send</string>
+		<string>--deliver</string>
+	</array>
+	<key>StandardErrorPath</key>
+	<string>@HOME@/Library/Logs/local-agentic-triage/report.log</string>
+	<key>StandardOutPath</key>
+	<string>@HOME@/Library/Logs/local-agentic-triage/report.log</string>
+	<key>StartCalendarInterval</key>
+	<dict>
+		<key>Hour</key>
+		<integer>18</integer>
+		<key>Minute</key>
+		<integer>0</integer>
+	</dict>
+	<key>Umask</key>
+	<integer>63</integer>
+</dict>
+</plist>

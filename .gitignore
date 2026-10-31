@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+dist/
+*.sqlite3*
+*.lock
+.DS_Store
+AGENTS.md
