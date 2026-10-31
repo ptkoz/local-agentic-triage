@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 import subprocess
+from datetime import datetime
 from helpers import make_config
 from local_agentic_triage.events.core import process
 from local_agentic_triage.mail.imap import Mailbox
@@ -30,7 +31,7 @@ class ReviewTests(unittest.TestCase):
                 self.assertNotIn(forbidden,args)
             data=json.loads(kw['input'].split('\n--- BEGIN UNTRUSTED EVENTS JSON ---\n')[1])
             self.assertEqual(data['calendar'],'Test Calendar'); self.assertEqual(data['events'],[EVENT]); self.assertEqual(data['nearby'],[[]])
-            return subprocess.CompletedProcess(args,0,stream({'status':'ok','results':[{'index':0,'outcome':'create','reason':None}]}),'')
+            return subprocess.CompletedProcess(args,0,stream({'status':'ok','results':[{'index':0,'outcome':'create','reason':None,'estimated_end':None}]}),'')
         with patch('subprocess.run',side_effect=run) as runner:
             result=process([EVENT],make_config())
         self.assertEqual(result['results'][0]['outcome'],'created')
@@ -54,7 +55,7 @@ class ReviewTests(unittest.TestCase):
             present={'9'}
             box.all_uids.side_effect=lambda:set(present)
             box.archive.side_effect=lambda uid: present.remove(uid)
-            classifier=Mock(return_value={'destination':'archive','summary':'synthetic','events':[]}); events=Mock()
+            classifier=Mock(return_value={'destination':'archive','summary':'synthetic','events':[]}); events=Mock(return_value={'status':'ok','results':[]})
             with patch.object(store,'ready',side_effect=RuntimeError('private')):
                 with self.assertLogs('local_agentic_triage',level='ERROR'):
                     self.assertEqual(poll(box,store,make_config(),classifier,events),1)
@@ -128,6 +129,21 @@ class ReviewTests(unittest.TestCase):
                 Calendar(make_config()).create(event)
             call.assert_not_called()
 
+    def test_create_boundary_requires_strictly_more_than_three_days(self):
+        from local_agentic_triage.events.calendar import Calendar
+        timed={'title':'Synthetic','start':'2030-01-04T12:00:00+02:00','end':'2030-01-04T13:00:00+02:00','date_note':None}
+        all_day={'title':'Synthetic','start':'2030-01-04','end':None,'date_note':None}
+        clock=lambda tz=None: datetime(2030,1,1,12,0,tzinfo=tz)
+        for event in (timed,all_day):
+            with self.subTest(event=event),patch.object(Calendar,'call') as call,self.assertRaisesRegex(ValueError,'calendar_too_soon'):
+                Calendar(make_config(),clock=clock).create(event)
+            call.assert_not_called()
+        for event in (timed|{'start':'2030-01-04T12:00:01+02:00','end':'2030-01-04T13:00:01+02:00'},all_day|{'start':'2030-01-05'}):
+            expected={'title':'Synthetic','start':event['start'],'end':event['end'] or '2030-01-06','all_day':len(event['start'])==10}
+            with self.subTest(event=event),patch.object(Calendar,'call',return_value=expected) as call:
+                Calendar(make_config(),clock=clock).create(event)
+            call.assert_called_once()
+
     def test_every_uid_guard_rejects_changed_validity_and_missing(self):
         for operation in ('raw','leave','archive'):
             for bad in (SEARCH.replace(b'77',b'78'),SEARCH.replace(b'9 12',b'12')):
@@ -181,7 +197,7 @@ class ReviewTests(unittest.TestCase):
         from local_agentic_triage.events.calendar import Calendar
         from local_agentic_triage.events.core import parse_results
         candidates=[EVENT,EVENT|{'title':'Different title','start':'2099-12-02'},EVENT|{'title':'Ambiguous'}]
-        decisions={'status':'ok','results':[{'index':0,'outcome':'create','reason':None},{'index':1,'outcome':'existing','reason':None},{'index':2,'outcome':'skipped','reason':'possible_duplicate'}]}
+        decisions={'status':'ok','results':[{'index':0,'outcome':'create','reason':None,'estimated_end':None},{'index':1,'outcome':'existing','reason':None,'estimated_end':None},{'index':2,'outcome':'skipped','reason':'possible_duplicate','estimated_end':None}]}
         nearby={'title':EVENT['title'],'start':'2099-12-01','end':'2099-12-02','all_day':True}
         with patch.object(Calendar,'nearby',return_value=[nearby]),patch.object(Calendar,'create') as create,patch('subprocess.run',return_value=subprocess.CompletedProcess([],0,stream(decisions),'')) as run:
             final=process(candidates,make_config())

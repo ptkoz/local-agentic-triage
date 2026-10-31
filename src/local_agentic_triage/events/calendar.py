@@ -68,7 +68,7 @@ def same(actual,expected):
     except (ValueError,TypeError): return False
 
 class Calendar:
-    def __init__(self,config): self.config=config
+    def __init__(self,config,clock=None): self.config=config; self.clock=clock or datetime.now
     def call(self,data):
         if 'calendar' in data: raise ValueError('calendar_boundary')
         data={'calendar':self.config.calendar,**data}
@@ -107,11 +107,17 @@ class Calendar:
             if not valid: raise ValueError('calendar_search_invalid')
             normalized.append(row)
         return normalized
+    def too_soon(self,event, *, now=None):
+        start_value=event['start']
+        if len(start_value)==10:
+            current=self.clock() if now is None else now.astimezone()
+            return date.fromisoformat(start_value)<=current.date()+timedelta(days=3)
+        start=datetime.fromisoformat(start_value)
+        current=self.clock(start.tzinfo) if now is None else now.astimezone(start.tzinfo)
+        return start<=current+timedelta(days=3)
     def create(self,event):
         expected=canonical(event)
-        today=date.today() if expected['all_day'] else datetime.now(datetime.fromisoformat(expected['start']).tzinfo)
-        start=date.fromisoformat(expected['start']) if expected['all_day'] else datetime.fromisoformat(expected['start'])
-        if start<today: raise ValueError('calendar_past_event')
+        if self.too_soon(event): raise ValueError('calendar_too_soon')
         actual=self.call({'operation':'create','event':expected})
         if not same(actual,expected): raise ValueError('calendar_verification_failed')
         return actual

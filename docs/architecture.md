@@ -83,11 +83,27 @@ created UID back from that calendar and verifies exact title and temporal start/
 values (timezone-equivalent timestamps compare equally). Any failure blocks
 mail disposition. Search failure prevents even invoking Hermes.
 
-Decision results contain exactly index/outcome/reason, one per candidate, under
-status/results. create/existing require null reason; skipped/error use fixed
+The classifier and its prompt are unchanged and may return incomplete events.
+Before any Calendar search or Hermes process starts, fixed code gates every
+classified event. A timed start is eligible only when strictly more than 72 hours
+away in that event's timezone; an all-day start is eligible only when its date is
+later than local today plus three days. Missing starts become skipped/missing_date,
+and known ineligible starts become skipped/too_soon. When none are eligible,
+Calendar search and Hermes are not invoked. Mixed batches expose only eligible
+events and their corresponding nearby rows to Hermes, then map its results back
+to the original indices while retaining local skips.
+
+Hermes decision results contain exactly index/outcome/reason/estimated_end, one per candidate, under
+status/results. A create decision may estimate an originally missing timed end
+from the title/event type without a fixed duration cap; deterministic validation
+requires an aware ISO timestamp strictly after start. Other estimates are rejected.
+Hermes owns the completion and create decision for eligible events. Fixed code
+only validates that narrow decision, performs the exact configured-Calendar write
+and readback, and repeats the date guard immediately before create as defense in depth.
+create/existing require null reason; skipped/error use fixed
 reason sets. Claimed created decisions, extra keys, duplicate indices and
 inconsistent status are rejected. The final internal exact result retains each
-index and replaces create with created only after verified readback. Titles
+index/outcome/reason and replaces create with created only after verified readback. Titles
 are bounded to 200 characters. Semantic matching remains Hermes' responsibility;
 Calendar effects are structurally constrained by deterministic code.
 

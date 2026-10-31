@@ -1,14 +1,16 @@
 from importlib.resources import files
+from datetime import datetime, timezone
 import json
 import subprocess
 from typing import Never
-from local_agentic_triage.classifier.core import validate
+from local_agentic_triage.classifier.core import validate, timestamp
 from local_agentic_triage.classifier.core import strict_json
 from local_agentic_triage.common.diagnostics import CommandError, error_code
 
 def prompt(): return files(__package__).joinpath('prompt.md').read_text(encoding='utf-8')
 
-SKIP_REASONS={'invalid_title','invalid_date','missing_date','uncertain_date','missing_end','past_event','cancelled_event','possible_duplicate'}
+SKIP_REASONS={'invalid_title','invalid_date','missing_date','uncertain_date','missing_end','past_event','cancelled_event','possible_duplicate','too_soon'}
+DECISION_SKIP_REASONS=SKIP_REASONS-{'too_soon'}
 ERROR_REASONS={'search_failed','create_failed','verification_failed','invalid_input'}
 DELIMITER='\n--- BEGIN UNTRUSTED EVENTS JSON ---\n'
 MAX_STREAM_WARNINGS=4
@@ -27,17 +29,38 @@ def parse_results(raw,events, *, decisions=False):
     if result['status'] not in ('ok','error'): raise ValueError('event_result_status')
     if len(result['results'])!=len(events): raise ValueError('event_result_coverage')
     seen=set(); failed=False
-    for entry in result['results']:
-        if not isinstance(entry,dict) or set(entry)!={'index','outcome','reason'}: raise ValueError('event_outcome_keys')
+    for expected_index,entry in enumerate(result['results']):
+        keys={'index','outcome','reason','estimated_end'} if decisions else {'index','outcome','reason'}
+        if not isinstance(entry,dict) or set(entry)!=keys: raise ValueError('event_outcome_keys')
         index=entry['index']; outcome=entry['outcome']; reason=entry['reason']
-        if type(index) is not int or index<0 or index>=len(events) or index in seen: raise ValueError('event_outcome_index')
+        if type(index) is not int or index!=expected_index or index in seen: raise ValueError('event_outcome_index')
         seen.add(index)
+        event=events[index]
+        if decisions:
+            estimate=entry['estimated_end']
+            authorized=(outcome=='create' and isinstance(event['start'],str) and len(event['start'])>10 and event['end'] is None)
+            if authorized:
+                try:
+                    timestamp(estimate)
+                    start=datetime.fromisoformat(event['start'])
+                    end=datetime.fromisoformat(estimate)
+                    if (start.tzinfo is None or start.utcoffset() is None or end.tzinfo is None or
+                            end.utcoffset() is None or end<=start):
+                        raise ValueError
+                except (TypeError,ValueError,OverflowError):
+                    raise ValueError('event_estimated_end') from None
+            elif estimate is not None:
+                raise ValueError('event_estimated_end')
         if outcome in (('create','existing') if decisions else ('created','existing')):
             if reason is not None: raise ValueError('event_outcome_reason')
-            event=events[index]
-            if event['start'] is None or event['date_note'] is not None or (len(event['start'])>10 and event['end'] is None): raise ValueError('unsafe_event_outcome')
+            missing_timed_end=isinstance(event['start'],str) and len(event['start'])>10 and event['end'] is None
+            if (event['start'] is None or event['date_note'] is not None or
+                    (missing_timed_end and outcome in ('create','created') and
+                     not (decisions and outcome=='create' and estimate is not None))):
+                raise ValueError('unsafe_event_outcome')
         elif outcome=='skipped':
-            if not isinstance(reason,str) or reason not in SKIP_REASONS: raise ValueError('event_outcome_reason')
+            allowed=DECISION_SKIP_REASONS if decisions else SKIP_REASONS
+            if not isinstance(reason,str) or reason not in allowed: raise ValueError('event_outcome_reason')
         elif outcome=='error':
             if not isinstance(reason,str) or reason not in ERROR_REASONS: raise ValueError('event_outcome_reason')
             failed=True
@@ -96,15 +119,26 @@ def parse_stream_envelope(raw,returncode):
     if records<2 or not saw_result: invalid()
     return result_text
 
-def process(events,config):
+def process(events,config, *, clock=None):
     from local_agentic_triage.events.calendar import Calendar
     validate_events(events)
     if not events: return {'status':'ok','results':[]}
-    calendar=Calendar(config)
-    nearby=[calendar.nearby(event) for event in events]
+    calendar=Calendar(config,clock=clock)
+    gate_now=calendar.clock(timezone.utc)
+    eligible=[]; results=[]
+    for index,event in enumerate(events):
+        if event['start'] is None:
+            results.append({'index':index,'outcome':'skipped','reason':'missing_date'})
+        elif calendar.too_soon(event,now=gate_now):
+            results.append({'index':index,'outcome':'skipped','reason':'too_soon'})
+        else:
+            eligible.append((index,event))
+    if not eligible: return {'status':'ok','results':results}
+    selected_events=[event for _,event in eligible]
+    nearby=[calendar.nearby(event) for event in selected_events]
     args=[config.hermes,'chat','--query-file','-','--oneshot','--quiet','--format','stream-json','--source','tool','--toolsets','none','--ignore-rules','--max-turns','20','--run-budget','120']
     try:
-        result=subprocess.run(args,input=prompt()+DELIMITER+json.dumps({'calendar':config.calendar,'events':events,'nearby':nearby},ensure_ascii=False),text=True,capture_output=True,timeout=config.timeout,shell=False)
+        result=subprocess.run(args,input=prompt()+DELIMITER+json.dumps({'calendar':config.calendar,'events':selected_events,'nearby':nearby},ensure_ascii=False),text=True,capture_output=True,timeout=config.timeout,shell=False)
     except (OSError,subprocess.SubprocessError) as exc:
         raise CommandError(error_code(exc)) from None
     if type(result.returncode) is int and result.returncode: raise CommandError('event_command_failed',result.returncode)
@@ -114,9 +148,18 @@ def process(events,config):
         raise ValueError('event_stream_invalid') from None
     if output_size>1000000: raise ValueError('event_result_size')
     text=parse_stream_envelope(result.stdout,result.returncode)
-    final=parse_results(text,events,decisions=True)
+    final=parse_results(text,selected_events,decisions=True)
+    validated_events=list(events)
     for entry in final['results']:
+        selected_index=entry['index']
+        original_index,event=eligible[selected_index]
         if entry['outcome']=='create':
-            calendar.create(events[entry['index']])
+            if entry['estimated_end'] is not None: event=event|{'end':entry['estimated_end']}
+            calendar.create(event)
+            validated_events[original_index]=event
             entry['outcome']='created'
-    return parse_results(json.dumps(final),events)
+        del entry['estimated_end']
+        entry['index']=original_index
+        results.append(entry)
+    combined={'status':'ok','results':sorted(results,key=lambda entry:entry['index'])}
+    return parse_results(json.dumps(combined),validated_events)

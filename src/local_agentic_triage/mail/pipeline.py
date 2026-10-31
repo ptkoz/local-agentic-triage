@@ -1,9 +1,10 @@
 import logging
+import json
 from dataclasses import replace
 from local_agentic_triage.mail.mime import parse
 from local_agentic_triage.mail.imap import uid_value
 from local_agentic_triage.classifier.core import classify, validate, bound_mail
-from local_agentic_triage.events.core import process
+from local_agentic_triage.events.core import process, parse_results
 from local_agentic_triage.common.diagnostics import error_code, error_suffix
 from local_agentic_triage.reporting.report import record_message
 
@@ -98,7 +99,10 @@ def poll(mailbox,store,config,classifier=classify,event_processor=process):
 
             log.info('mail_item_action item=%d uid=%s stage=events',index,uid)
             stage='events'
-            event_processor(result['events'],config)
+            event_result=event_processor(result['events'],config)
+            event_result=parse_results(json.dumps(event_result),result['events'])
+            for entry in event_result['results']:
+                log.info('mail_event_result uid=%s index=%d outcome=%s reason=%s',uid,entry['index'],entry['outcome'],entry['reason'])
             stage='disposition'
             if result['destination']=='leave':
                 mailbox.leave(uid)
