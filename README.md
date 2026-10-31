@@ -68,3 +68,65 @@ never private mail or model content.
 The poll LaunchAgent runs every 300 seconds. The report LaunchAgent runs at
 local 18:00. See [architecture](docs/architecture.md) for retry and delivery
 semantics and [security](docs/security.md) for privacy boundaries.
+
+## Deploy on a new macOS account
+
+1. Install Python 3.14, Himalaya v2.1.0, Hermes, Docker Model Runner, and the
+   local classification model. Configure Himalaya separately; never place mail
+   credentials in this repository or in `config.toml`.
+2. Clone the repository as the target macOS user and run:
+
+   ```sh
+   python3.14 scripts/install.py --python /absolute/path/to/python3.14
+   ```
+
+   This installs the zipapp, an unconfigured private config, logs, and two
+   unloaded LaunchAgents. It does not start mail processing or report delivery.
+3. Edit
+   `~/Library/Application Support/local-agentic-triage/config.toml`. Use
+   [`config.example.toml`](config.example.toml) as the complete field reference.
+   `@HOME@` is replaced automatically by the installer; replace every remaining
+   `@...@` placeholder. Keep the file mode at `0600`. Discord
+   IDs, calendar/account names, executable paths, database paths, and lock paths
+   belong only in this local file, never in Git.
+4. Validate the complete configuration and installation without live effects:
+
+   ```sh
+   plutil -lint ~/Library/LaunchAgents/local.local-agentic-triage.poll.plist
+   plutil -lint ~/Library/LaunchAgents/local.local-agentic-triage.report.plist
+   /absolute/path/to/python3.14 ~/.local/libexec/local-agentic-triage/local-agentic-triage.pyz config validate
+   ```
+
+   `config validate` parses every field, rejects unresolved placeholders and
+   invalid targets, and confirms that the configured Himalaya and Hermes paths
+   are executable. It does not open the database or contact any service. The
+   LaunchAgents use a minimal system `PATH`, so both executable paths must be
+   absolute.
+5. Before allowing live effects, verify the external dependencies separately:
+   Himalaya v2.1.0 can access the configured account and both mailboxes; Docker
+   Model Runner is running the model documented in `classifier/core.py` on its
+   loopback endpoint; Hermes has a configured default provider/model and valid
+   Discord delivery credentials; and the target Calendar exists with Calendar
+   Automation/TCC permission granted to the production process. A GUI login
+   alone does not establish these permissions or start Docker Model Runner.
+6. On a new account, perform one explicitly authorized controlled run before
+   scheduling. Use an isolated test account/mailbox; `mail poll` processes every
+   eligible message in the configured Inbox, so a single synthetic message is
+   safe only after explicitly confirming that no other eligible messages exist.
+   Invoke `mail poll` manually, inspect the resulting mailbox/calendar state and
+   privacy-safe logs, then invoke `report send --deliver` and verify the target.
+   Do not use a real mailbox as an unreviewed first-run probe.
+7. After those checks and explicit production authorization, load both jobs from that
+   account's active GUI session:
+
+   ```sh
+   launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.local-agentic-triage.poll.plist
+   launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.local-agentic-triage.report.plist
+   launchctl print gui/$(id -u)/local.local-agentic-triage.poll
+   launchctl print gui/$(id -u)/local.local-agentic-triage.report
+   ```
+
+   A logged-in GUI session is required because the pipeline depends on Docker
+   Desktop and macOS Calendar/TCC access. To stop production, use `launchctl
+   bootout gui/$(id -u) <plist-path>` for each plist. Runtime logs are under
+   `~/Library/Logs/local-agentic-triage/`.

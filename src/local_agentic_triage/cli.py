@@ -13,10 +13,10 @@ from local_agentic_triage.reporting.report import send
 log=logging.getLogger('local_agentic_triage')
 
 def main(argv=None):
-    os.umask(0o077)
     parser=argparse.ArgumentParser(prog='local-agentic-triage')
     parser.add_argument('--config',type=Path,default=DEFAULT_PATH)
     commands=parser.add_subparsers(dest='command',required=True)
+    config_command=commands.add_parser('config'); config_command.add_argument('action',choices=['validate'])
     mail=commands.add_parser('mail'); mail.add_argument('action',choices=['poll'])
     report=commands.add_parser('report'); report.add_argument('action',choices=['send']); report.add_argument('--deliver',action='store_true')
     args=parser.parse_args(argv)
@@ -24,6 +24,13 @@ def main(argv=None):
         log.error('report_delivery_disabled'); return 2
     try:
         config=load(args.config)
+        if args.command=='config':
+            for executable in (config.himalaya,config.hermes):
+                path=Path(executable)
+                if not path.is_file() or not os.access(path,os.X_OK):
+                    raise ValueError('configured executable unavailable')
+            log.info('config_valid')
+            return 0
         lock_path=config.poll_lock if args.command=='mail' else config.report_lock
         for path in (config.database,lock_path): Path(path).expanduser().parent.mkdir(mode=0o700,parents=True,exist_ok=True)
         with Lock(Path(lock_path).expanduser()):
@@ -40,5 +47,6 @@ def main(argv=None):
         log.error('command_failed'); return 1
 
 def entry():
+    os.umask(0o077)
     logging.basicConfig(level=logging.INFO,format='%(levelname)s %(message)s')
     raise SystemExit(main())

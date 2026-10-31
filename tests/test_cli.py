@@ -1,3 +1,4 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -31,3 +32,20 @@ class CLITests(unittest.TestCase):
             with self.assertLogs('local_agentic_triage',level='ERROR') as logs:
                 self.assertEqual(main(['mail','poll']),1)
             self.assertNotIn('secret',str(logs.output))
+
+    def test_config_validate_is_side_effect_free(self):
+        with tempfile.TemporaryDirectory() as d:
+            executable=Path(d)/'tool'; executable.write_text('#!/bin/sh\n'); executable.chmod(0o700)
+            config=Path(d)/'config.toml'
+            config.write_text(config_text(himalaya=str(executable),hermes=str(executable),database=f'{d}/db',poll_lock=f'{d}/poll.lock',report_lock=f'{d}/report.lock'))
+            previous=os.umask(0o022)
+            try:
+                with patch('local_agentic_triage.cli.Mailbox.connect') as mailbox,patch('local_agentic_triage.cli.Store') as store,patch('local_agentic_triage.cli.send') as send,patch('local_agentic_triage.cli.Lock') as lock,patch('local_agentic_triage.cli.subprocess.run') as run:
+                    self.assertEqual(main(['--config',str(config),'config','validate']),0)
+                    self.assertEqual(os.umask(0o022),0o022)
+            finally:
+                os.umask(previous)
+            mailbox.assert_not_called(); store.assert_not_called(); send.assert_not_called()
+            lock.assert_not_called(); run.assert_not_called()
+            executable.chmod(0o600)
+            self.assertEqual(main(['--config',str(config),'config','validate']),1)
