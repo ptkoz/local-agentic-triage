@@ -39,6 +39,7 @@ class EventTests(unittest.TestCase):
         self.assertIn('block event creation only',p)
         self.assertNotIn('block creation and disposition',p)
         self.assertNotIn('blocks mail disposition',p)
+        self.assertNotIn('classifier',p.lower())
 
     def test_missing_timed_end_is_estimated_and_only_copy_is_created(self):
         event=EVENT|{'start':'2099-12-01T18:00:00+01:00'}
