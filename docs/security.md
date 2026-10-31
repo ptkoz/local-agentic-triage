@@ -31,10 +31,17 @@ Hermes chat receives no --model or
 Classifier and event prompts treat supplied content as untrusted data. Exact
 JSON key sets, duplicate-key rejection, typed fields, date formats, completion
 status and complete event-result coverage limit what model output can trigger.
+The classifier also requests that exact outer shape with strict JSON Schema,
+then independently applies conditional and temporal validation. Hermes output
+uses bounded line-delimited stream framing: limited leading warnings are
+discarded, session and exit status must match, tool records are forbidden, and
+only the final result text reaches the unchanged decision validator.
 Hermes has zero tools (`--toolsets none --ignore-rules`) and no skills; it only
 semantically authorizes create/existing/skipped decisions. Fixed JXA reads only
 the configured calendar and creates validated events there, then verifies
 title/start/end by readback.
+Calendar search alone normalizes a known equal-date one-day all-day adapter row
+to an exclusive next-day end; create readback is never normalized.
 All untrusted values use stdin JSON, never executable JXA interpolation. No
 Calendar edits/deletes, attendees, alarms, location or notes are exposed.
 

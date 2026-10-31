@@ -1,6 +1,7 @@
 from importlib.resources import files
 import json
 import subprocess
+from typing import Never
 from local_agentic_triage.classifier.core import validate
 from local_agentic_triage.classifier.core import strict_json
 from local_agentic_triage.common.diagnostics import CommandError, error_code
@@ -10,6 +11,10 @@ def prompt(): return files(__package__).joinpath('prompt.md').read_text(encoding
 SKIP_REASONS={'invalid_title','invalid_date','missing_date','uncertain_date','missing_end','past_event','cancelled_event','possible_duplicate'}
 ERROR_REASONS={'search_failed','create_failed','verification_failed','invalid_input'}
 DELIMITER='\n--- BEGIN UNTRUSTED EVENTS JSON ---\n'
+MAX_STREAM_WARNINGS=4
+MAX_STREAM_WARNING_BYTES=4096
+MAX_STREAM_LINE_BYTES=65536
+MAX_STREAM_RECORDS=256
 
 def validate_events(events):
     validate({'destination':'leave','summary':None,'events':events})
@@ -41,20 +46,75 @@ def parse_results(raw,events, *, decisions=False):
     if failed: raise ValueError('event_processing_failed')
     return result
 
+def parse_stream_envelope(raw,returncode):
+    def invalid()->Never: raise ValueError('event_stream_invalid')
+    if type(returncode) is not int or returncode!=0 or not isinstance(raw,str): invalid()
+    warnings=warning_bytes=records=0
+    session_id=result_text=None
+    saw_record=saw_result=False
+    for line in raw.splitlines():
+        try:
+            size=len(line.encode('utf-8'))
+        except UnicodeError:
+            invalid()
+        if size>MAX_STREAM_LINE_BYTES: invalid()
+        if not line: invalid()
+        if line.startswith('Warning: '):
+            if saw_record: invalid()
+            warnings+=1; warning_bytes+=size
+            if warnings>MAX_STREAM_WARNINGS or warning_bytes>MAX_STREAM_WARNING_BYTES: invalid()
+            continue
+        saw_record=True; records+=1
+        if records>MAX_STREAM_RECORDS or saw_result: invalid()
+        try:
+            record=strict_json(line)
+        except (TypeError,ValueError,UnicodeError):
+            invalid()
+        if not isinstance(record,dict): invalid()
+        kind=record.get('type')
+        if records==1:
+            if kind!='system' or record.get('subtype')!='init': invalid()
+            session_id=record.get('session_id')
+            if not isinstance(session_id,str) or not session_id: invalid()
+        elif kind=='system':
+            invalid()
+        elif kind in ('tool_use','tool_result'):
+            invalid()
+        elif kind=='text':
+            if not isinstance(record.get('text'),str): invalid()
+        elif kind=='result':
+            result_session=record.get('session_id')
+            exit_code=record.get('exit_code')
+            text=record.get('text')
+            if (result_session!=session_id or not isinstance(result_session,str) or
+                    type(exit_code) is not int or exit_code!=0 or 'error' in record or
+                    not isinstance(text,str)):
+                invalid()
+            result_text=text; saw_result=True
+        else:
+            invalid()
+    if records<2 or not saw_result: invalid()
+    return result_text
+
 def process(events,config):
     from local_agentic_triage.events.calendar import Calendar
     validate_events(events)
     if not events: return {'status':'ok','results':[]}
     calendar=Calendar(config)
     nearby=[calendar.nearby(event) for event in events]
-    args=[config.hermes,'chat','--query-file','-','--oneshot','--quiet','--source','tool','--toolsets','none','--ignore-rules','--max-turns','20','--run-budget','120']
+    args=[config.hermes,'chat','--query-file','-','--oneshot','--quiet','--format','stream-json','--source','tool','--toolsets','none','--ignore-rules','--max-turns','20','--run-budget','120']
     try:
         result=subprocess.run(args,input=prompt()+DELIMITER+json.dumps({'calendar':config.calendar,'events':events,'nearby':nearby},ensure_ascii=False),text=True,capture_output=True,timeout=config.timeout,shell=False)
     except (OSError,subprocess.SubprocessError) as exc:
         raise CommandError(error_code(exc)) from None
-    if result.returncode: raise CommandError('event_command_failed',result.returncode)
-    if len(result.stdout)>1000000: raise ValueError('event_result_size')
-    final=parse_results(result.stdout,events,decisions=True)
+    if type(result.returncode) is int and result.returncode: raise CommandError('event_command_failed',result.returncode)
+    try:
+        output_size=len(result.stdout.encode('utf-8'))
+    except (AttributeError,UnicodeError):
+        raise ValueError('event_stream_invalid') from None
+    if output_size>1000000: raise ValueError('event_result_size')
+    text=parse_stream_envelope(result.stdout,result.returncode)
+    final=parse_results(text,events,decisions=True)
     for entry in final['results']:
         if entry['outcome']=='create':
             calendar.create(events[entry['index']])

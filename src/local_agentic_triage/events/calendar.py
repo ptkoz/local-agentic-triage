@@ -88,12 +88,25 @@ class Calendar:
             upper=datetime.combine(dt+timedelta(days=7),time.max).isoformat()
         rows=self.call({'operation':'search','lower':lower,'upper':upper})
         if not isinstance(rows,list) or len(rows)>1000: raise ValueError('calendar_search_invalid')
+        normalized=[]
         for row in rows:
             if not isinstance(row,dict) or set(row)!={'title','start','end','all_day'} or type(row['all_day']) is not bool:
                 raise ValueError('calendar_search_invalid')
+            if row['all_day'] is True and row['start']==row['end'] and isinstance(row['start'],str):
+                try:
+                    if len(row['start'])==10:
+                        end=(date.fromisoformat(row['start'])+timedelta(days=1)).isoformat()
+                        row=row|{'end':end}
+                except ValueError:
+                    pass
             candidate={'title':row['title'],'start':row['start'],'end':row['end'],'date_note':None}
-            if not same(row,canonical(candidate)): raise ValueError('calendar_search_invalid')
-        return rows
+            try:
+                valid=same(row,canonical(candidate))
+            except (TypeError,ValueError):
+                valid=False
+            if not valid: raise ValueError('calendar_search_invalid')
+            normalized.append(row)
+        return normalized
     def create(self,event):
         expected=canonical(event)
         today=date.today() if expected['all_day'] else datetime.now(datetime.fromisoformat(expected['start']).tzinfo)

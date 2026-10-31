@@ -48,7 +48,7 @@ calendar processing cause no disposition.
 The classifier prompt is copied exactly from the approved document and pinned
 by SHA-256 in tests. The model is exactly docker.io/ai/qwen35-mail:16k at
 http://127.0.0.1:12434/engines/v1/chat/completions. Proxies and redirects are
-disabled. Temperature is 0, `chat_template_kwargs.enable_thinking` is false, JSON-object format is requested,
+disabled. Temperature is 0, `chat_template_kwargs.enable_thinking` is false, a strict JSON Schema matching the complete classification shape is requested,
 and output has a 2048-token budget. No hosted fallback exists.
 
 ## Calendar and disposition
@@ -61,12 +61,20 @@ with `--toolsets none --ignore-rules`, with no skill or tool access. Hermes only
 semantically checks and authorizes: different titles and slightly different dates
 or times can identify the same real-world event. Clear matches return existing;
 ambiguous matches return skipped/possible_duplicate. Only create authorizes a write.
+Hermes emits bounded `stream-json`: a single system/init record establishes the
+session, non-authoritative text records are ignored, and one final result record
+with the same session supplies the only decision text. Tool records, unknown
+record types, framing errors, nonzero exit codes, and trailing records fail closed.
 
 `events/calendar.py` owns a fixed JXA program invoked by `/usr/bin/osascript` with
 shell=False and a timeout. Event values travel solely as JSON on stdin, never
 as executable source. The adapter requires exactly one calendar with the configured name,
 reads only overlapping events in each candidate's +/-7-day window (full days
 for all-day candidates), and returns title/start/end/all_day only. It validates
+search rows before use. Calendar's one-day all-day search representation may
+return equal valid ISO dates; only `nearby` copies such a row and advances its
+end to the next exclusive ISO day. Other search rows and every create/readback
+value retain their original representation. It validates
 creates, rejects incomplete/uncertain/past events, and creates only title, start,
 end and all-day status. A null all-day end is serialized as the next exclusive
 day; explicit ends are preserved. It never edits, deletes, sets attendees,

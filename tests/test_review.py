@@ -11,6 +11,7 @@ from local_agentic_triage.mail.pipeline import poll
 from local_agentic_triage.reporting.store import Store
 from test_imap import SELECT, SEARCH, done
 from helpers import config_text
+from test_events import stream
 
 EVENT={'title':'\"; doShellScript("evil"); //','start':'2099-12-01','end':None,'date_note':None}
 class ReviewTests(unittest.TestCase):
@@ -29,7 +30,7 @@ class ReviewTests(unittest.TestCase):
                 self.assertNotIn(forbidden,args)
             data=json.loads(kw['input'].split('\n--- BEGIN UNTRUSTED EVENTS JSON ---\n')[1])
             self.assertEqual(data['calendar'],'Test Calendar'); self.assertEqual(data['events'],[EVENT]); self.assertEqual(data['nearby'],[[]])
-            return subprocess.CompletedProcess(args,0,json.dumps({'status':'ok','results':[{'index':0,'outcome':'create','reason':None}]}),'')
+            return subprocess.CompletedProcess(args,0,stream({'status':'ok','results':[{'index':0,'outcome':'create','reason':None}]}),'')
         with patch('subprocess.run',side_effect=run) as runner:
             result=process([EVENT],make_config())
         self.assertEqual(result['results'][0]['outcome'],'created')
@@ -68,6 +69,40 @@ class ReviewTests(unittest.TestCase):
         with patch.object(Calendar,'call',return_value=[]) as call:
             Calendar(make_config()).nearby(EVENT)
         self.assertEqual(call.call_args.args[0]['upper'],'2099-12-08T23:59:59.999999')
+
+    def test_nearby_normalizes_equal_single_day_adapter_rows(self):
+        from local_agentic_triage.events.calendar import Calendar
+        cases=(('2099-12-31','2100-01-01'),('2028-02-29','2028-03-01'))
+        for start,end in cases:
+            row={'title':'Synthetic','start':start,'end':start,'all_day':True}
+            with self.subTest(start=start),patch.object(Calendar,'call',return_value=[row]):
+                self.assertEqual(Calendar(make_config()).nearby(EVENT),[row|{'end':end}])
+                self.assertEqual(row['end'],start)
+
+    def test_nearby_preserves_canonical_all_day_rows(self):
+        from local_agentic_triage.events.calendar import Calendar
+        for start,end in (('2099-12-01','2099-12-02'),('2099-12-01','2099-12-05')):
+            row={'title':'Synthetic','start':start,'end':end,'all_day':True}
+            with self.subTest(end=end),patch.object(Calendar,'call',return_value=[row]):
+                self.assertEqual(Calendar(make_config()).nearby(EVENT),[row])
+
+    def test_nearby_rejects_invalid_equal_or_negative_rows(self):
+        from local_agentic_triage.events.calendar import Calendar
+        rows=(
+            {'title':'Synthetic','start':'2099-99-01','end':'2099-99-01','all_day':True},
+            {'title':'Synthetic','start':'2099-12-02','end':'2099-12-01','all_day':True},
+            {'title':'Synthetic','start':'2099-12-01T10:00:00Z','end':'2099-12-01T10:00:00Z','all_day':False},
+            {'title':'Synthetic','start':'2099-12-01','end':'2099-12-01','all_day':False},
+        )
+        for row in rows:
+            with self.subTest(row=row),patch.object(Calendar,'call',return_value=[row]),self.assertRaisesRegex(ValueError,'calendar_search_invalid'):
+                Calendar(make_config()).nearby(EVENT)
+
+    def test_equal_all_day_create_readback_is_not_normalized(self):
+        from local_agentic_triage.events.calendar import Calendar
+        row={'title':EVENT['title'],'start':'2099-12-01','end':'2099-12-01','all_day':True}
+        with patch.object(Calendar,'call',return_value=row),self.assertRaisesRegex(ValueError,'calendar_verification_failed'):
+            Calendar(make_config()).create(EVENT)
 
     def test_adapter_failures_block_disposition(self):
         for response in (subprocess.CompletedProcess([],1,'private','private'),
@@ -148,7 +183,7 @@ class ReviewTests(unittest.TestCase):
         candidates=[EVENT,EVENT|{'title':'Different title','start':'2099-12-02'},EVENT|{'title':'Ambiguous'}]
         decisions={'status':'ok','results':[{'index':0,'outcome':'create','reason':None},{'index':1,'outcome':'existing','reason':None},{'index':2,'outcome':'skipped','reason':'possible_duplicate'}]}
         nearby={'title':EVENT['title'],'start':'2099-12-01','end':'2099-12-02','all_day':True}
-        with patch.object(Calendar,'nearby',return_value=[nearby]),patch.object(Calendar,'create') as create,patch('subprocess.run',return_value=subprocess.CompletedProcess([],0,json.dumps(decisions),'')) as run:
+        with patch.object(Calendar,'nearby',return_value=[nearby]),patch.object(Calendar,'create') as create,patch('subprocess.run',return_value=subprocess.CompletedProcess([],0,stream(decisions),'')) as run:
             final=process(candidates,make_config())
             create.assert_called_once_with(EVENT)
             data=json.loads(run.call_args.kwargs['input'].split('\n--- BEGIN UNTRUSTED EVENTS JSON ---\n')[1])
