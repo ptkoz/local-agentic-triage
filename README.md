@@ -1,9 +1,10 @@
 # local-agentic-triage
 
 Local, standard-library-only email triage for Python 3.14. Himalaya v2.1.0 is
-the sole mail boundary, DMR classifies on loopback, Hermes performs a tool-free
-semantic event decision, a deterministic single-calendar adapter creates and
-verifies events, and Hermes sends a daily Discord report.
+the sole mail boundary. One fixed loopback DMR model performs mail classification
+and semantic event decisions with separate strict JSON Schemas. A deterministic
+single-calendar adapter creates and verifies events, and Hermes sends a daily
+Discord report without participating in classification.
 
 ## Offline development
 
@@ -43,7 +44,7 @@ Unknown keys, unresolved placeholders, relative paths, control characters, and
 invalid Discord identifiers are rejected. Himalaya account and mailbox values
 are used consistently in CLI arguments, IMAP SELECT commands, source identity,
 and reconciliation. The application never reads Himalaya credentials or config.
-Hermes uses its configured default provider and model.
+Hermes is used only to deliver the rendered Discord report.
 
 `max_mail_bytes = 0` is deliberate: raw messages can consume unbounded local
 memory so that no valid message is skipped by a default byte cap. Model-facing
@@ -111,9 +112,9 @@ semantics, [security](docs/security.md) for privacy boundaries, and the
 5. Before allowing live effects, verify the external dependencies separately:
    Himalaya v2.1.0 can access the configured account and both mailboxes; Docker
    Model Runner is running the model documented in `classifier/core.py` on its
-   loopback endpoint; Hermes has a configured default provider/model and valid
-   Discord delivery credentials; and the target Calendar exists with Calendar
-   Automation/TCC permission granted to the production process. A GUI login
+   loopback endpoint; Hermes has valid Discord delivery credentials; and the target
+   Calendar exists with Calendar Automation/TCC permission granted to the
+   production process. A GUI login
    alone does not establish these permissions or start Docker Model Runner.
 6. On a new account, perform one explicitly authorized controlled run before
    scheduling. Use an isolated test account/mailbox; `mail poll` processes every

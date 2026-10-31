@@ -7,6 +7,10 @@ from dataclasses import replace
 
 ENDPOINT='http://127.0.0.1:12434/engines/v1/chat/completions'
 MODEL='docker.io/ai/qwen35-mail:16k'
+CONTEXT_TOKENS=16384
+MAX_TOKENS=2048
+TIMEOUT=120
+MAX_RESPONSE_BYTES=1000000
 MAIL_FIELD_BUDGETS={'sent_date':256,'sender':1024,'subject':2048,'body':6400}
 TRUNCATION='[content truncated]'
 CLASSIFICATION_SCHEMA={
@@ -102,22 +106,36 @@ def validate(obj):
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self,*args,**kwargs): raise ValueError('model redirect forbidden')
 
-def classify(mail):
-    data={'model':MODEL,'temperature':0,'chat_template_kwargs':{'enable_thinking':False},'response_format':CLASSIFICATION_SCHEMA,'max_tokens':2048,'messages':[{'role':'system','content':prompt()},{'role':'user','content':json.dumps(mail_payload(mail),ensure_ascii=False)}]}
+def chat_completion(messages,response_format):
+    data={'model':MODEL,'temperature':0,'chat_template_kwargs':{'enable_thinking':False},'response_format':response_format,'max_tokens':MAX_TOKENS,'messages':messages}
     request=urllib.request.Request(ENDPOINT,data=json.dumps(data).encode(),headers={'Content-Type':'application/json'})
     # Disable environment proxies; only this fixed loopback endpoint is permitted.
     opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect())
-    with opener.open(request,timeout=120) as response:
-        raw=response.read(1000001)
-    if len(raw)>1000000: raise ValueError('model size limit')
+    with opener.open(request,timeout=TIMEOUT) as response:
+        raw=response.read(MAX_RESPONSE_BYTES+1)
+    if len(raw)>MAX_RESPONSE_BYTES: raise ValueError('model size limit')
     try:
         envelope=strict_json(raw)
     except (TypeError,ValueError,UnicodeError):
         raise ModelEnvelopeJsonInvalid from None
-    result=envelope['choices'][0]
-    if result['finish_reason']!='stop': raise ValueError('model incomplete')
     try:
-        content=strict_json(result['message']['content'])
+        if (not isinstance(envelope,dict) or not isinstance(envelope['choices'],list)
+                or len(envelope['choices'])!=1 or not isinstance(envelope['choices'][0],dict)):
+            raise ValueError
+        result=envelope['choices'][0]
+        finish_reason=result['finish_reason']
+        content=result['message']['content']
+        if not isinstance(result['message'],dict): raise ValueError
+    except (KeyError,IndexError,TypeError,ValueError):
+        raise ModelEnvelopeJsonInvalid from None
+    if finish_reason!='stop': raise ValueError('model incomplete')
+    try:
+        return strict_json(content)
     except (TypeError,ValueError,UnicodeError):
         raise ModelContentJsonInvalid from None
-    return validate(content)
+
+def classify(mail):
+    return validate(chat_completion([
+        {'role':'system','content':prompt()},
+        {'role':'user','content':json.dumps(mail_payload(mail),ensure_ascii=False)},
+    ],CLASSIFICATION_SCHEMA))
