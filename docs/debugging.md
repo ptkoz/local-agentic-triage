@@ -93,6 +93,16 @@ The classifier performs two strict JSON decodes. Current builds distinguish them
 - `model_content_json_invalid`: `choices[0].message.content` was not strict JSON. The HTTP envelope was valid, but the model returned malformed classification JSON.
 
 Both decoders also reject duplicate keys, non-finite constants, invalid encoding, and wrong input types. Schema errors after successful decoding have their own exception-derived code and are not JSON decode failures.
+The request uses a strict JSON Schema for destination, summary, and complete
+event objects; the same deterministic validator still enforces leave/archive
+conditions, date syntax, range compatibility, and temporal ordering afterward.
+
+Hermes event decisions use `--format stream-json`. The parser permits only a
+small bounded prefix of `Warning: ` lines, requires one system/init and one
+final result with matching session identifiers and zero integer exit codes,
+rejects tools or trailing records, and parses only `result.text` as the existing
+strict decision document. Framing failures expose only fixed technical errors;
+captured output must not be added to logs while debugging.
 
 Older builds logged both decoder failures as `json_decode_error`. That legacy code alone is ambiguous: it proves strict JSON decoding failed but not which decoder failed. Use the read-only diagnostic command on the current build. If replay succeeds, report that the historical decoder location cannot be proven from legacy logs; do not infer it or claim a root cause from private output.
 

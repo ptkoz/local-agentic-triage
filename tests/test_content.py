@@ -42,6 +42,30 @@ class ContentTests(unittest.TestCase):
             self.assertEqual(data['max_tokens'],2048)
             self.assertNotIn('enable_thinking',data)
             self.assertEqual(data['chat_template_kwargs'],{'enable_thinking':False})
+            self.assertEqual(data['response_format'],{
+                'type':'json_schema',
+                'json_schema':{
+                    'name':'mail_classification','strict':True,
+                    'schema':{
+                        'type':'object','additionalProperties':False,
+                        'required':['destination','summary','events'],
+                        'properties':{
+                            'destination':{'type':'string','enum':['leave','archive']},
+                            'summary':{'type':['string','null']},
+                            'events':{'type':'array','items':{
+                                'type':'object','additionalProperties':False,
+                                'required':['title','start','end','date_note'],
+                                'properties':{
+                                    'title':{'type':'string'},
+                                    'start':{'type':['string','null']},
+                                    'end':{'type':['string','null']},
+                                    'date_note':{'type':['string','null']},
+                                },
+                            }},
+                        },
+                    },
+                },
+            })
             self.assertIn('sent_date',data['messages'][1]['content'])
 
     def test_classifier_distinguishes_envelope_and_content_json(self):

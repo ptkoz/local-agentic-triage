@@ -9,6 +9,30 @@ ENDPOINT='http://127.0.0.1:12434/engines/v1/chat/completions'
 MODEL='docker.io/ai/qwen35-mail:16k'
 MAIL_FIELD_BUDGETS={'sent_date':256,'sender':1024,'subject':2048,'body':6400}
 TRUNCATION='[content truncated]'
+CLASSIFICATION_SCHEMA={
+    'type':'json_schema',
+    'json_schema':{
+        'name':'mail_classification','strict':True,
+        'schema':{
+            'type':'object','additionalProperties':False,
+            'required':['destination','summary','events'],
+            'properties':{
+                'destination':{'type':'string','enum':['leave','archive']},
+                'summary':{'type':['string','null']},
+                'events':{'type':'array','items':{
+                    'type':'object','additionalProperties':False,
+                    'required':['title','start','end','date_note'],
+                    'properties':{
+                        'title':{'type':'string'},
+                        'start':{'type':['string','null']},
+                        'end':{'type':['string','null']},
+                        'date_note':{'type':['string','null']},
+                    },
+                }},
+            },
+        },
+    },
+}
 
 class ModelEnvelopeJsonInvalid(ValueError): pass
 class ModelContentJsonInvalid(ValueError): pass
@@ -79,7 +103,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self,*args,**kwargs): raise ValueError('model redirect forbidden')
 
 def classify(mail):
-    data={'model':MODEL,'temperature':0,'chat_template_kwargs':{'enable_thinking':False},'response_format':{'type':'json_object'},'max_tokens':2048,'messages':[{'role':'system','content':prompt()},{'role':'user','content':json.dumps(mail_payload(mail),ensure_ascii=False)}]}
+    data={'model':MODEL,'temperature':0,'chat_template_kwargs':{'enable_thinking':False},'response_format':CLASSIFICATION_SCHEMA,'max_tokens':2048,'messages':[{'role':'system','content':prompt()},{'role':'user','content':json.dumps(mail_payload(mail),ensure_ascii=False)}]}
     request=urllib.request.Request(ENDPOINT,data=json.dumps(data).encode(),headers={'Content-Type':'application/json'})
     # Disable environment proxies; only this fixed loopback endpoint is permitted.
     opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect())
