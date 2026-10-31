@@ -1,0 +1,17 @@
+# Replace every @...@ operational placeholder before running.
+account = "@ACCOUNT@"
+inbox = "@INBOX@"
+archive = "@ARCHIVE@"
+channel = "discord:@DISCORD_CHANNEL_ID@"
+discord_user_id = "@DISCORD_USER_ID@"
+calendar = "@CALENDAR@"
+himalaya = "@HIMALAYA@"
+hermes = "@HERMES@"
+database = "@HOME@/Library/Application Support/local-agentic-triage/triage.sqlite3"
+poll_lock = "@HOME@/Library/Caches/local-agentic-triage/mail-poller.lock"
+report_lock = "@HOME@/Library/Caches/local-agentic-triage/daily-report.lock"
+# Deliberate local-memory tradeoff: 0 accepts any raw message size in memory;
+# model-facing fields remain separately bounded. Set a positive byte limit if needed.
+max_mail_bytes = 0
+discord_limit = 1900
+timeout = 150
