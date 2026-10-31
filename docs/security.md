@@ -14,6 +14,9 @@ never enter application logs. The numeric IMAP UID is intentionally logged with
 poll actions and failures so a failed message can be reproduced. Failure logs use
 fixed technical codes, without exception text or captured stdout/stderr. Himalaya
 logging is explicitly disabled.
+Event-enrichment failures log only the UID, a fixed technical error code, and an
+allowed numeric subprocess return code when present. They do not enter the fatal
+mail-failure count or prevent leave/archive disposition.
 Discord delivery is fail-closed: the report function requires an explicit runner,
 and the CLI requires `report send --deliver`. Tests and review probes that omit
 either gate cannot call the real Hermes sender or advance report state.

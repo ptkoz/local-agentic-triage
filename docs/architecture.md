@@ -42,8 +42,9 @@ prefers nonattachment text/plain, falls back deterministically to HTML text,
 ignores script/style content, and skips attachment subtrees. Subject, sender,
 sent date and body go only to the fixed local classifier. The sent date is a
 separate JSON field, allowing relative dates to resolve against the message.
-Malformed MIME, oversized input, invalid/truncated classification, and failed
-calendar processing cause no disposition.
+Malformed MIME, oversized input, and invalid/truncated classification cause no
+disposition. Event processing is optional enrichment: its failures are logged
+and do not block mail disposition.
 
 The classifier prompt is copied exactly from the approved document and pinned
 by SHA-256 in tests. The model is exactly docker.io/ai/qwen35-mail:16k at
@@ -80,8 +81,10 @@ end and all-day status. A null all-day end is serialized as the next exclusive
 day; explicit ends are preserved. It never edits, deletes, sets attendees,
 alarms, location or notes, or accesses another calendar's events. It reads the
 created UID back from that calendar and verifies exact title and temporal start/end
-values (timezone-equivalent timestamps compare equally). Any failure blocks
-mail disposition. Search failure prevents even invoking Hermes.
+values (timezone-equivalent timestamps compare equally). Any search, Hermes,
+validation, create, or readback failure is contained as an event-enrichment
+failure and does not block mail disposition. Search failure prevents even
+invoking Hermes.
 
 The classifier and its prompt are unchanged and may return incomplete events.
 Before any Calendar search or Hermes process starts, fixed code gates every
@@ -107,7 +110,7 @@ index/outcome/reason and replaces create with created only after verified readba
 are bounded to 200 characters. Semantic matching remains Hermes' responsibility;
 Calendar effects are structurally constrained by deterministic code.
 
-For leave, successful events are followed by
+For leave, event processing is followed, whether successful or not, by
 `himalaya imap store -m <inbox> --flag \Flagged -- UID`, without changing Seen
 or writing SQLite. The standard system flag makes explicit leave decisions visible
 in mail clients. Existing HermesLeave keywords are neither migrated nor removed
@@ -116,8 +119,8 @@ they independently already have `\Flagged`.
 
 For archive, deterministic code first renders and validates the eventual single
 Discord report row against `discord_limit`. Oversized rows fail before events,
-SQLite, Seen, or MOVE and are never split or truncated. Successful events are
-then followed by INSERT OR IGNORE of an immutable prepared report row with
+SQLite, Seen, or MOVE and are never split or truncated. Event processing is
+then followed, whether successful or not, by INSERT OR IGNORE of an immutable prepared report row with
 ready_at NULL. Only then does Himalaya verify UID presence, add raw `\Seen` by
 UID with `imap store --flag \Seen -- UID`, and move from the configured inbox to
 configured archive. Success sets ready_at. A prepared row found

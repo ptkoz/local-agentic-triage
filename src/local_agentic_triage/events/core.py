@@ -22,7 +22,8 @@ def validate_events(events):
     validate({'destination':'leave','summary':None,'events':events})
     if any(len(event['title'])>200 for event in events): raise ValueError('event_title_limit')
 
-def parse_results(raw,events, *, decisions=False):
+def parse_results(raw,events, *, decisions=False, processed=False):
+    if decisions and processed: raise ValueError('event_result_mode')
     validate_events(events)
     result=strict_json(raw)
     if not isinstance(result,dict) or set(result)!={'status','results'} or not isinstance(result['results'],list): raise ValueError('event_result_keys')
@@ -36,6 +37,7 @@ def parse_results(raw,events, *, decisions=False):
         if type(index) is not int or index!=expected_index or index in seen: raise ValueError('event_outcome_index')
         seen.add(index)
         event=events[index]
+        estimate=None
         if decisions:
             estimate=entry['estimated_end']
             authorized=(outcome=='create' and isinstance(event['start'],str) and len(event['start'])>10 and event['end'] is None)
@@ -56,7 +58,8 @@ def parse_results(raw,events, *, decisions=False):
             missing_timed_end=isinstance(event['start'],str) and len(event['start'])>10 and event['end'] is None
             if (event['start'] is None or event['date_note'] is not None or
                     (missing_timed_end and outcome in ('create','created') and
-                     not (decisions and outcome=='create' and estimate is not None))):
+                     not ((decisions and outcome=='create' and estimate is not None) or
+                          (processed and outcome=='created')))):
                 raise ValueError('unsafe_event_outcome')
         elif outcome=='skipped':
             allowed=DECISION_SKIP_REASONS if decisions else SKIP_REASONS

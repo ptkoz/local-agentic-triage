@@ -98,11 +98,13 @@ def poll(mailbox,store,config,classifier=classify,event_processor=process):
                                 'sent_at':mail.sent_date},config.discord_limit)
 
             log.info('mail_item_action item=%d uid=%s stage=events',index,uid)
-            stage='events'
-            event_result=event_processor(result['events'],config)
-            event_result=parse_results(json.dumps(event_result),result['events'])
-            for entry in event_result['results']:
-                log.info('mail_event_result uid=%s index=%d outcome=%s reason=%s',uid,entry['index'],entry['outcome'],entry['reason'])
+            try:
+                event_result=event_processor(result['events'],config)
+                event_result=parse_results(json.dumps(event_result),result['events'],processed=True)
+                for entry in event_result['results']:
+                    log.info('mail_event_result uid=%s index=%d outcome=%s reason=%s',uid,entry['index'],entry['outcome'],entry['reason'])
+            except Exception as exc:
+                log.error('mail_event_failed uid=%s error=%s%s',uid,error_code(exc),error_suffix(exc))
             stage='disposition'
             if result['destination']=='leave':
                 mailbox.leave(uid)

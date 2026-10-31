@@ -36,6 +36,9 @@ class EventTests(unittest.TestCase):
         p=prompt()
         for text in ('configured calendar','untrusted','7 days','readback','estimated_end','best plausible','title/event type','no fixed duration cap','strict JSON'):
             self.assertIn(text,p)
+        self.assertIn('block event creation only',p)
+        self.assertNotIn('block creation and disposition',p)
+        self.assertNotIn('blocks mail disposition',p)
 
     def test_missing_timed_end_is_estimated_and_only_copy_is_created(self):
         event=EVENT|{'start':'2099-12-01T18:00:00+01:00'}
@@ -96,6 +99,20 @@ class EventTests(unittest.TestCase):
                 parse_results(json.dumps({'status':'ok','results':[existing]}),[unsafe],decisions=True)
             with self.subTest(unsafe=unsafe),self.assertRaisesRegex(ValueError,'unsafe_event_outcome'):
                 parse_results(json.dumps({'status':'ok','results':[final]}),[unsafe])
+
+    def test_processed_created_may_complete_missing_end_without_weakening_final_results(self):
+        created={'status':'ok','results':[{'index':0,'outcome':'created','reason':None}]}
+        known=EVENT|{'start':'2099-12-01T18:00:00+01:00'}
+        with self.assertRaisesRegex(ValueError,'unsafe_event_outcome'):
+            parse_results(json.dumps(created),[known])
+        self.assertEqual(parse_results(json.dumps(created),[known],processed=True),created)
+        for unsafe in (known|{'start':None},known|{'date_note':'uncertain'}):
+            with self.subTest(unsafe=unsafe),self.assertRaisesRegex(ValueError,'unsafe_event_outcome'):
+                parse_results(json.dumps(created),[unsafe],processed=True)
+        existing={'status':'ok','results':[{'index':0,'outcome':'existing','reason':None}]}
+        for unsafe in (known|{'start':None},known|{'date_note':'uncertain'}):
+            with self.subTest(unsafe=unsafe),self.assertRaisesRegex(ValueError,'unsafe_event_outcome'):
+                parse_results(json.dumps(existing),[unsafe],processed=True)
 
     def test_final_results_require_ordered_complete_coverage(self):
         events=[EVENT,EVENT|{'title':'Second','start':'2026-12-02'}]

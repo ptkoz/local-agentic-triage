@@ -105,18 +105,34 @@ class ReviewTests(unittest.TestCase):
         with patch.object(Calendar,'call',return_value=row),self.assertRaisesRegex(ValueError,'calendar_verification_failed'):
             Calendar(make_config()).create(EVENT)
 
-    def test_adapter_failures_block_disposition(self):
-        for response in (subprocess.CompletedProcess([],1,'private','private'),
-                         subprocess.CompletedProcess([],0,'not JSON','private'),
-                         subprocess.CompletedProcess([],0,'{}','')):
-            with tempfile.TemporaryDirectory() as d:
-                store=Store(Path(d)/'db'); box=Mock(); box.candidates.return_value=['9']
-                box.source_key.return_value='imap:test-account:Test%20Inbox:77:9'; box.raw.return_value=b'\nsynthetic'
-                classifier=Mock(return_value={'destination':'archive','summary':'synthetic','events':[EVENT]})
-                with patch('subprocess.run',return_value=response),self.assertLogs('local_agentic_triage',level='ERROR') as logs:
-                    self.assertEqual(poll(box,store,make_config(),classifier),1)
-                self.assertNotIn('private',str(logs.output)); box.archive.assert_not_called(); box.leave.assert_not_called()
-                self.assertEqual(store.stranded(),[]); store.close()
+    def test_event_adapter_failure_is_absorbed_and_archive_completes(self):
+        with tempfile.TemporaryDirectory() as d:
+            store=Store(Path(d)/'db'); box=Mock(validity='77'); box.candidates.return_value=['9']
+            key='imap:test-account:Test%20Inbox:77:9'
+            box.source_key.return_value=key
+            box.raw.return_value=(b'Date: Sat, 31 Oct 2026 01:27:00 +0100\n'
+                                  b'From: Synthetic Sender <sender@example.invalid>\n\nSynthetic body')
+            classifier=Mock(return_value={'destination':'archive','summary':'Synthetic summary','events':[EVENT]})
+            event_processor=Mock(side_effect=RuntimeError('PRIVATE adapter output'))
+            transitions=[]; prepare=store.prepare; ready=store.ready
+            store.prepare=Mock(side_effect=lambda *args,**kwargs:(transitions.append('prepared'),prepare(*args,**kwargs))[1])
+            store.ready=Mock(side_effect=lambda *args,**kwargs:(transitions.append('ready'),ready(*args,**kwargs))[1])
+            with self.assertLogs('local_agentic_triage',level='ERROR') as logs:
+                self.assertEqual(poll(box,store,make_config(),classifier,event_processor),0)
+            output='\n'.join(logs.output)
+            self.assertEqual(output.count('mail_event_failed'),1)
+            self.assertIn('mail_event_failed uid=9 error=runtime_error',output)
+            self.assertNotIn('PRIVATE adapter output',output)
+            self.assertNotIn('Synthetic body',output)
+            self.assertNotIn('mail_item_failed',output)
+            box.archive.assert_called_once_with('9'); box.leave.assert_not_called()
+            row=store.prepared(key)
+            self.assertEqual(row['sender'],'Synthetic Sender <sender@example.invalid>')
+            self.assertEqual(row['summary'],'Synthetic summary')
+            self.assertEqual(row['sent_at'],'2026-10-31T01:27:00+01:00')
+            self.assertIsNotNone(row['ready_at'])
+            self.assertEqual(transitions,['prepared','ready'])
+            store.close()
 
     def test_readback_mismatch_and_unsafe_create_rejected(self):
         from local_agentic_triage.events.calendar import Calendar, canonical
