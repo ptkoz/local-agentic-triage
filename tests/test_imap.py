@@ -95,6 +95,9 @@ class HimalayaTests(unittest.TestCase):
     def test_empty_and_invalid_search_outputs(self):
         with patch('subprocess.run',side_effect=[done(SELECT),done(SEARCH.replace(b'* SEARCH 9 12',b'* SEARCH'))]):
             self.assertEqual(Mailbox.connect(make_config()).candidates(),[])
+        stripped_empty=SELECT+b'a2 OK SEARCH completed\r\n'
+        with patch('subprocess.run',side_effect=[done(SELECT),done(stripped_empty)]):
+            self.assertEqual(Mailbox.connect(make_config()).candidates(),[])
         for values in (b'9 9',b'0',b'01',b'4294967296'):
             with patch('subprocess.run',side_effect=[done(SELECT),done(SEARCH.replace(b'9 12',values))]),self.assertRaises(ValueError): Mailbox.connect(make_config()).candidates()
 
