@@ -144,6 +144,9 @@ class EventTests(unittest.TestCase):
             'no fixed duration cap','timezone-aware ISO','end is null','missing_end',
             'If no plausible duration can be inferred','skipped with missing_end',
             'Preserve title, start, the start timezone, date_note, and any supplied end.',
+            'Compare duplicates before estimating end','apply timezone offsets to compare start instants',
+            'A shared instant is only timing evidence','identity-bearing name','performer identity',
+            'missing end is irrelevant','unrelated concurrent events authorize create','30 minutes',
             'user message',
         ):
             self.assertIn(text,p)

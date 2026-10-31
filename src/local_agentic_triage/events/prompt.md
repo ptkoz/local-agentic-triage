@@ -7,7 +7,18 @@ Each candidate contains exactly title, start, end, date_note. Its corresponding
 nearby array contains title/start/end/all_day records from the configured calendar
 within +/-7 days. Compare candidates with nearby records and one another
 semantically, treating a different title or a small date/time difference as a
-potential match. A clear match returns existing. A possible or ambiguous match
+potential match. Compare duplicates before estimating end; apply timezone offsets
+to compare start instants. A shared instant is only timing evidence: when titles
+share no identity-bearing name or semantic event identity, do not return existing
+or possible_duplicate from time alone; unrelated concurrent events authorize
+create. When same-instant titles do share a performer identity, they are existing
+even if formatted as full name plus tour versus event word plus surname plus venue;
+missing end is irrelevant. Example: “Maya Rivera: North Tour” at 20:00+02 versus
+“Concert Rivera Grand Hall” at 18:00Z => existing, while “Dental cleaning” at that
+instant versus the concert => no match. When titles share a specific identity but
+the normalized starts differ modestly, including by 30 minutes, return skipped
+with possible_duplicate rather than existing or create unless independent details
+prove a time change. A clear match returns existing. A possible or ambiguous match
 returns skipped with possible_duplicate. Authorize create only when no match
 exists. Never claim created; deterministic code performs the write and verifies
 exact title/start/end by readback.
