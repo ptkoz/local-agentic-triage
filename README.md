@@ -65,9 +65,15 @@ success, 1 is an operational failure, 2 is CLI misuse, and 75 means the lock is
 busy. Logs contain technical stages, fixed error codes, and numeric IMAP UIDs,
 never private mail or model content.
 
+For read-only investigation of a single classification failure, use `mail
+diagnose --uid <UID>` rather than `mail poll`. See the [safe debugging
+runbook](docs/debugging.md) for UID/UIDVALIDITY scope, error-code meanings,
+privacy rules, and the exact no-mutation procedure.
+
 The poll LaunchAgent runs every 300 seconds. The report LaunchAgent runs at
 local 18:00. See [architecture](docs/architecture.md) for retry and delivery
-semantics and [security](docs/security.md) for privacy boundaries.
+semantics, [security](docs/security.md) for privacy boundaries, and the
+[debugging runbook](docs/debugging.md) for production diagnosis.
 
 ## Deploy on a new macOS account
 

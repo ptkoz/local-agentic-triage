@@ -2,9 +2,11 @@ import unittest
 import hashlib
 from pathlib import Path
 from local_agentic_triage.mail.mime import parse
-from local_agentic_triage.classifier.core import validate, prompt, classify, mail_payload
+from local_agentic_triage.classifier.core import (ModelContentJsonInvalid,
+    ModelEnvelopeJsonInvalid, validate, prompt, classify, mail_payload)
 from unittest.mock import patch
 import json
+from local_agentic_triage.common.diagnostics import error_code
 
 class ContentTests(unittest.TestCase):
     def test_mime(self):
@@ -41,6 +43,33 @@ class ContentTests(unittest.TestCase):
             self.assertNotIn('enable_thinking',data)
             self.assertEqual(data['chat_template_kwargs'],{'enable_thinking':False})
             self.assertIn('sent_date',data['messages'][1]['content'])
+
+    def test_classifier_distinguishes_envelope_and_content_json(self):
+        class Response:
+            def __init__(self,payload): self.payload=payload
+            def __enter__(self): return self
+            def __exit__(self,*a): pass
+            def read(self,n): return self.payload
+        mail=parse(b'Date: Wed, 01 Jan 2025 12:00:00 +0100\n\nbody',100)
+        with patch('urllib.request.OpenerDirector.open',return_value=Response(b'not json')):
+            with self.assertRaises(ModelEnvelopeJsonInvalid): classify(mail)
+        envelope=json.dumps({'choices':[{'finish_reason':'stop','message':{'content':'not json'}}]}).encode()
+        with patch('urllib.request.OpenerDirector.open',return_value=Response(envelope)):
+            with self.assertRaises(ModelContentJsonInvalid): classify(mail)
+
+        envelope_cases=(b'{"a":1,"a":2}',b'NaN',b'\xff',{'not':'json text'})
+        for payload in envelope_cases:
+            with self.subTest(boundary='envelope',payload=type(payload).__name__):
+                with patch('urllib.request.OpenerDirector.open',return_value=Response(payload)):
+                    with self.assertRaises(ModelEnvelopeJsonInvalid) as caught: classify(mail)
+                self.assertEqual(error_code(caught.exception),'model_envelope_json_invalid')
+        content_cases=('{"a":1,"a":2}','NaN',{'not':'json text'})
+        for content in content_cases:
+            envelope=json.dumps({'choices':[{'finish_reason':'stop','message':{'content':content}}]}).encode()
+            with self.subTest(boundary='content',content=type(content).__name__):
+                with patch('urllib.request.OpenerDirector.open',return_value=Response(envelope)):
+                    with self.assertRaises(ModelContentJsonInvalid) as caught: classify(mail)
+                self.assertEqual(error_code(caught.exception),'model_content_json_invalid')
 
     def test_model_input_bounds_every_mail_field(self):
         from types import SimpleNamespace

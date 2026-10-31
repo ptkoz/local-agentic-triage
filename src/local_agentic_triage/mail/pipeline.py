@@ -9,6 +9,30 @@ from local_agentic_triage.reporting.report import record_message
 
 log=logging.getLogger('local_agentic_triage')
 
+def diagnose(mailbox,config,uid,classifier=classify,expected_validity=None):
+    """Replay reading and local classification for one UID without mutations."""
+    uid=uid_value(uid)
+    validity=uid_value(mailbox.validity)
+    if expected_validity is not None and uid_value(expected_validity)!=validity:
+        log.error('mail_diagnosis_identity_failed uid=%s error=uidvalidity_mismatch',uid)
+        return 1
+    stage='read'
+    try:
+        mail=parse(mailbox.raw(uid),config.max_mail_bytes)
+        if not mail.sent_date:
+            mail=replace(mail,sent_date=mailbox.internal_date(uid))
+        stage='classify'
+        mail,truncated=bound_mail(mail)
+        if truncated:
+            log.info('mail_content_truncated uid=%s fields=%s',uid,','.join(truncated))
+        validate(classifier(mail))
+        log.info('mail_diagnosis_completed uid=%s uidvalidity=%s stage=classify',uid,validity)
+        return 0
+    except Exception as exc:
+        log.error('mail_diagnosis_failed uid=%s uidvalidity=%s stage=%s error=%s%s',uid,validity,stage,
+                  error_code(exc),error_suffix(exc))
+        return 1
+
 def poll(mailbox,store,config,classifier=classify,event_processor=process):
     failures=0; completed=0
     log.info('mail_poll_started')
@@ -42,7 +66,7 @@ def poll(mailbox,store,config,classifier=classify,event_processor=process):
         log.info('mail_reconciliation_completed recovered=%d',recovered)
     reconcile()
     for index,uid in enumerate(candidates,1):
-        log.info('mail_item_started item=%d total=%d uid=%s',index,len(candidates),uid)
+        log.info('mail_item_started item=%d total=%d uid=%s uidvalidity=%s',index,len(candidates),uid,mailbox.validity)
         stage='identity'
         try:
             key=mailbox.source_key(uid)
@@ -86,7 +110,7 @@ def poll(mailbox,store,config,classifier=classify,event_processor=process):
                 store.ready(key)
             completed+=1
         except Exception as exc:
-            log.error('mail_item_failed item=%d uid=%s stage=%s error=%s%s',index,uid,stage,error_code(exc),error_suffix(exc))
+            log.error('mail_item_failed item=%d uid=%s uidvalidity=%s stage=%s error=%s%s',index,uid,mailbox.validity,stage,error_code(exc),error_suffix(exc))
             failures+=1
     reconcile()
     log.info('mail_poll_completed candidates=%d completed=%d failures=%d',len(candidates),completed,failures)
