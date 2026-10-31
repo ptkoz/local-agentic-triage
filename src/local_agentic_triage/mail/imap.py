@@ -92,8 +92,10 @@ class Mailbox:
         if len(completions) != 1 or not re.fullmatch(r'a2 OK(?: .*)?', completions[0]):
             raise RuntimeError('himalaya_search_failed')
         searches = [line for line in lines if line == '* SEARCH' or line.startswith('* SEARCH ')]
-        if len(searches) != 1:
+        if len(searches) > 1:
             raise ValueError('himalaya_search_invalid')
+        if not searches:
+            return []
         uids = [uid_value(value) for value in searches[0][8:].split()]
         if len(set(uids)) != len(uids):
             raise ValueError('himalaya_search_invalid')
