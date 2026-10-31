@@ -84,6 +84,30 @@ class PipelineTests(unittest.TestCase):
             self.assertIsNotNone(store.prepared('key')['ready_at'])
             store.close()
 
+    def test_event_model_http_failure_is_sanitized_optional_enrichment(self):
+        import urllib.error
+        from local_agentic_triage.events.core import process
+        event={'title':'PRIVATE EVENT','start':'2099-12-01','end':None,'date_note':None}
+        with tempfile.TemporaryDirectory() as d:
+            store=Store(Path(d)/'db'); box=Mock(); box.validity='77'
+            box.candidates.return_value=['9']; box.source_key.return_value='key'
+            box.raw.return_value=b'Date: Sat, 31 Oct 2026 01:27:00 +0100\nFrom: secret@example.invalid\n\nprivate body'
+            classifier=Mock(return_value={'destination':'leave','summary':None,'events':[event]})
+            with patch('local_agentic_triage.events.calendar.Calendar.nearby',return_value=[]), \
+                 patch('local_agentic_triage.events.calendar.Calendar.create') as create, \
+                 patch('subprocess.run',side_effect=AssertionError('decision subprocess')), \
+                 patch('urllib.request.OpenerDirector.open',side_effect=urllib.error.URLError('PRIVATE_SENTINEL')), \
+                 self.assertLogs('local_agentic_triage',level='ERROR') as logs:
+                self.assertEqual(poll(box,store,make_config(),classifier,process),0)
+            output='\n'.join(logs.output)
+            self.assertIn('mail_event_failed uid=9 error=model_request_failed',output)
+            self.assertNotIn('returncode=',output)
+            self.assertNotIn('mail_item_failed',output)
+            for private in ('PRIVATE_SENTINEL','PRIVATE EVENT','secret@example.invalid','private body','2099-12-01'):
+                self.assertNotIn(private,output)
+            create.assert_not_called(); box.leave.assert_called_once_with('9'); box.archive.assert_not_called()
+            store.close()
+
     def test_archive_disposition_failure_after_event_failure_remains_fatal(self):
         with tempfile.TemporaryDirectory() as d:
             store=Store(Path(d)/'db'); box=Mock(validity='77')

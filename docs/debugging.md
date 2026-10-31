@@ -69,7 +69,7 @@ the installed application or restart its LaunchAgents.
 
 - selects only the configured Inbox and validates its current `UIDVALIDITY`;
 - verifies that the UID still exists, reads that message without setting flags, bounds the model payload, and calls only the fixed loopback classifier;
-- does not open SQLite, acquire production locks, run Calendar/Hermes, set `\Flagged`/`Seen`, move mail, or send a report;
+- does not open SQLite, acquire production locks, run Calendar/event decisions, set `\Flagged`/`Seen`, move mail, or send a report;
 - logs only UID, UIDVALIDITY, stage, truncation field names, and a controlled error code;
 - returns 0 if classification currently succeeds and 1 if the replay fails.
 
@@ -87,22 +87,21 @@ the historical failure. State this limitation explicitly.
 
 ## Classification JSON errors
 
-The classifier performs two strict JSON decodes. Current builds distinguish them:
+The shared local-model client performs two strict JSON decodes. Current builds distinguish them:
 
 - `model_envelope_json_invalid`: the HTTP body returned by the loopback Docker Model Runner endpoint was not strict JSON. This is a transport/runtime response failure before reading a model message.
 - `model_content_json_invalid`: `choices[0].message.content` was not strict JSON. The HTTP envelope was valid, but the model returned malformed classification JSON.
 
 Both decoders also reject duplicate keys, non-finite constants, invalid encoding, and wrong input types. Schema errors after successful decoding have their own exception-derived code and are not JSON decode failures.
-The request uses a strict JSON Schema for destination, summary, and complete
-event objects; the same deterministic validator still enforces leave/archive
-conditions, date syntax, range compatibility, and temporal ordering afterward.
-
-Hermes event decisions use `--format stream-json`. The parser permits only a
-small bounded prefix of `Warning: ` lines, requires one system/init and one
-final result with matching session identifiers and zero integer exit codes,
-rejects tools or trailing records, and parses only `result.text` as the existing
-strict decision document. Framing failures expose only fixed technical errors;
-captured output must not be added to logs while debugging.
+Mail classification and event decisions use distinct strict JSON Schemas with
+the same fixed loopback endpoint and model. The mail schema covers destination,
+summary and complete event objects. The event schema covers status/results and
+index/outcome/reason/estimated_end. Deterministic validators still enforce
+leave/archive conditions, exact ordered coverage, reason sets, date syntax,
+range compatibility, estimate authorization and temporal ordering. The event
+user payload is rejected before the model when its conservative context budget
+would be exceeded; nearby records are never truncated because that could hide a
+duplicate.
 
 An event exception or invalid canonical event result produces one
 `mail_event_failed uid=... error=...` line, optionally with a bounded numeric

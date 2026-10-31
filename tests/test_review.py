@@ -12,32 +12,38 @@ from local_agentic_triage.mail.pipeline import poll
 from local_agentic_triage.reporting.store import Store
 from test_imap import SELECT, SEARCH, done
 from helpers import config_text
-from test_events import stream
+from test_events import decision_response, prompt as event_prompt
 
 EVENT={'title':'\"; doShellScript("evil"); //','start':'2099-12-01','end':None,'date_note':None}
 class ReviewTests(unittest.TestCase):
     def test_toolless_decision_and_adapter_data(self):
         from local_agentic_triage.events.calendar import Calendar, SCRIPT
         def run(args,**kw):
-            if args[0]=='/usr/bin/osascript':
-                self.assertEqual(args,['/usr/bin/osascript','-l','JavaScript','-e',SCRIPT])
-                self.assertNotIn(EVENT['title'],SCRIPT)
-                data=json.loads(kw['input']); self.assertEqual(data['calendar'],'Test Calendar')
-                out=[] if data['operation']=='search' else {'title':EVENT['title'],'start':'2099-12-01','end':'2099-12-02','all_day':True}
-                return subprocess.CompletedProcess(args,0,json.dumps(out),'')
-            self.assertIn('--ignore-rules',args)
-            self.assertEqual(args[args.index('--toolsets')+1],'none')
-            for forbidden in ('--skills','apple-account-automation','terminal','browser','files','--model','--provider'):
+            self.assertEqual(args,['/usr/bin/osascript','-l','JavaScript','-e',SCRIPT])
+            self.assertNotIn(EVENT['title'],SCRIPT)
+            self.assertNotIn('hermes',args)
+            for forbidden in ('chat','--toolsets','--skills','--model','--provider','stream-json'):
                 self.assertNotIn(forbidden,args)
-            data=json.loads(kw['input'].split('\n--- BEGIN UNTRUSTED EVENTS JSON ---\n')[1])
-            self.assertEqual(data['calendar'],'Test Calendar'); self.assertEqual(data['events'],[EVENT]); self.assertEqual(data['nearby'],[[]])
-            return subprocess.CompletedProcess(args,0,stream({'status':'ok','results':[{'index':0,'outcome':'create','reason':None,'estimated_end':None}]}),'')
-        with patch('subprocess.run',side_effect=run) as runner:
+            data=json.loads(kw['input']); self.assertEqual(data['calendar'],'Test Calendar')
+            out=[] if data['operation']=='search' else {'title':EVENT['title'],'start':'2099-12-01','end':'2099-12-02','all_day':True}
+            return subprocess.CompletedProcess(args,0,json.dumps(out),'')
+        decision={'status':'ok','results':[{'index':0,'outcome':'create','reason':None,'estimated_end':None}]}
+        with patch('subprocess.run',side_effect=run) as runner, \
+             patch('urllib.request.OpenerDirector.open',return_value=decision_response(decision)) as opened:
             result=process([EVENT],make_config())
         self.assertEqual(result['results'][0]['outcome'],'created')
-        self.assertEqual(runner.call_count,3)
+        self.assertEqual(runner.call_count,2)
         for call in runner.call_args_list:
             self.assertFalse(call.kwargs['shell']); self.assertGreater(call.kwargs['timeout'],0)
+        body=json.loads(opened.call_args.args[0].data)
+        self.assertNotIn('tools',body)
+        self.assertEqual(body['messages'][0]['content'],event_prompt())
+        self.assertNotIn(EVENT['title'],body['messages'][0]['content'])
+        user=json.loads(body['messages'][1]['content'])
+        self.assertEqual(user['calendar'],'Test Calendar')
+        self.assertEqual(user['events'],[EVENT])
+        self.assertEqual(user['nearby'],[[]])
+        self.assertEqual(opened.call_args.kwargs['timeout'],120)
 
     def test_after_seen_guard_blocks_move(self):
         for bad in (SEARCH.replace(b'77',b'78'),SEARCH.replace(b'9 12',b'12')):
@@ -215,10 +221,13 @@ class ReviewTests(unittest.TestCase):
         candidates=[EVENT,EVENT|{'title':'Different title','start':'2099-12-02'},EVENT|{'title':'Ambiguous'}]
         decisions={'status':'ok','results':[{'index':0,'outcome':'create','reason':None,'estimated_end':None},{'index':1,'outcome':'existing','reason':None,'estimated_end':None},{'index':2,'outcome':'skipped','reason':'possible_duplicate','estimated_end':None}]}
         nearby={'title':EVENT['title'],'start':'2099-12-01','end':'2099-12-02','all_day':True}
-        with patch.object(Calendar,'nearby',return_value=[nearby]),patch.object(Calendar,'create') as create,patch('subprocess.run',return_value=subprocess.CompletedProcess([],0,stream(decisions),'')) as run:
+        with patch.object(Calendar,'nearby',return_value=[nearby]),patch.object(Calendar,'create') as create, \
+             patch('subprocess.run',side_effect=AssertionError('decision subprocess')) as run, \
+             patch('urllib.request.OpenerDirector.open',return_value=decision_response(decisions)) as opened:
             final=process(candidates,make_config())
             create.assert_called_once_with(EVENT)
-            data=json.loads(run.call_args.kwargs['input'].split('\n--- BEGIN UNTRUSTED EVENTS JSON ---\n')[1])
+            run.assert_not_called()
+            data=json.loads(json.loads(opened.call_args.args[0].data)['messages'][1]['content'])
             self.assertEqual(data['nearby'],[[nearby]]*3)
             self.assertEqual([r['outcome'] for r in final['results']],['created','existing','skipped'])
         decisions['results'][0]['outcome']='created'

@@ -40,6 +40,7 @@ class ContentTests(unittest.TestCase):
             self.assertEqual(req.full_url,'http://127.0.0.1:12434/engines/v1/chat/completions')
             self.assertEqual(data['model'],'docker.io/ai/qwen35-mail:16k')
             self.assertEqual(data['max_tokens'],2048)
+            self.assertEqual(call.call_args.kwargs['timeout'],120)
             self.assertNotIn('enable_thinking',data)
             self.assertEqual(data['chat_template_kwargs'],{'enable_thinking':False})
             self.assertEqual(data['response_format'],{
@@ -77,6 +78,13 @@ class ContentTests(unittest.TestCase):
         mail=parse(b'Date: Wed, 01 Jan 2025 12:00:00 +0100\n\nbody',100)
         with patch('urllib.request.OpenerDirector.open',return_value=Response(b'not json')):
             with self.assertRaises(ModelEnvelopeJsonInvalid): classify(mail)
+        for envelope in ({}, {'choices':[]}, {'choices':[{}]},
+                         {'choices':[{'finish_reason':'stop','message':{}}]},
+                         {'choices':[{'finish_reason':'stop','message':False}]}):
+            with self.subTest(envelope=envelope), \
+                 patch('urllib.request.OpenerDirector.open',return_value=Response(json.dumps(envelope).encode())), \
+                 self.assertRaises(ModelEnvelopeJsonInvalid):
+                classify(mail)
         envelope=json.dumps({'choices':[{'finish_reason':'stop','message':{'content':'not json'}}]}).encode()
         with patch('urllib.request.OpenerDirector.open',return_value=Response(envelope)):
             with self.assertRaises(ModelContentJsonInvalid): classify(mail)
