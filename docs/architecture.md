@@ -13,8 +13,8 @@ Himalaya v2.1.0 is the only mail boundary, with explicitly configured account,
 mailboxes, absolute executable path, backend `imap`, and logging disabled.
 Python never loads Himalaya configuration or handles authentication. Raw
 commands on stdin select the configured inbox with IMAP quoted-string escaping
-and issue `UID SEARCH UNKEYWORD HermesLeave`, regardless of Seen.
-SELECT must succeed with numeric UIDVALIDITY and permanent custom keywords;
+and issue `UID SEARCH UNFLAGGED`, regardless of Seen.
+SELECT must succeed with numeric UIDVALIDITY and `\Flagged` in PERMANENTFLAGS;
 SEARCH must have one successful tagged completion and unique numeric UIDs.
 Identity combines account, mailbox, UIDVALIDITY and UID; all numeric identities
 are nonzero 32-bit unsigned values. No sequence-number commands are used. `imap store` uses `--` before the UID
@@ -31,7 +31,7 @@ A positive `max_mail_bytes` remains an optional raw-message limit. Mutations use
 JSON output, validating the exact success string emitted by v2.1.0; raw protocol
 parsing is limited to SELECT and UID SEARCH. Before read, leave or archive, another SELECT and
 exact `UID SEARCH UID <uid>` checks UIDVALIDITY and Inbox presence without
-filtering HermesLeave. The same guard runs again after Seen and immediately
+filtering `\Flagged`. The same guard runs again after Seen and immediately
 before MOVE. A changed validity or missing UID stops the operation.
 Himalaya CLI calls create separate IMAP sessions: SELECT/search and the following
 read/store/move cannot bind atomically. Mailbox recreation between the final
@@ -84,8 +84,11 @@ are bounded to 200 characters. Semantic matching remains Hermes' responsibility;
 Calendar effects are structurally constrained by deterministic code.
 
 For leave, successful events are followed by
-`himalaya imap store -m <inbox> --flag HermesLeave -- UID`, without changing Seen
-or writing SQLite.
+`himalaya imap store -m <inbox> --flag \Flagged -- UID`, without changing Seen
+or writing SQLite. The standard system flag makes explicit leave decisions visible
+in mail clients. Existing HermesLeave keywords are neither migrated nor removed
+and do not count as processed: those Inbox messages are candidates again unless
+they independently already have `\Flagged`.
 
 For archive, deterministic code first renders and validates the eventual single
 Discord report row against `discord_limit`. Oversized rows fail before events,
@@ -104,7 +107,7 @@ in-progress report window across partial delivery failures.
 There is no transaction spanning IMAP and SQLite. At the beginning and end of
 every poll, reconciliation enumerates prepared rows with ready_at NULL. Only
 keys for the configured account/inbox/UIDVALIDITY are considered. An exact UID search
-without the HermesLeave filter marks an absent UID ready: MOVE succeeded or the
+without the `\Flagged` filter marks an absent UID ready: MOVE succeeded or the
 message was otherwise removed. Present UIDs remain for normal prepared retry.
 Search/validity failures leave rows unready and fail the poll. Reconciliation
 never reruns classification or events, and adds no queue or schema columns.
