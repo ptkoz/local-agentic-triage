@@ -6,7 +6,8 @@ from pathlib import Path
 from local_agentic_triage.common.config import DEFAULT_PATH,load
 from local_agentic_triage.common.lock import Lock,Busy
 from local_agentic_triage.mail.imap import Mailbox
-from local_agentic_triage.mail.pipeline import poll
+from local_agentic_triage.mail.imap import uid_value
+from local_agentic_triage.mail.pipeline import diagnose,poll
 from local_agentic_triage.reporting.store import Store
 from local_agentic_triage.reporting.report import send
 
@@ -17,7 +18,7 @@ def main(argv=None):
     parser.add_argument('--config',type=Path,default=DEFAULT_PATH)
     commands=parser.add_subparsers(dest='command',required=True)
     config_command=commands.add_parser('config'); config_command.add_argument('action',choices=['validate'])
-    mail=commands.add_parser('mail'); mail.add_argument('action',choices=['poll'])
+    mail=commands.add_parser('mail'); mail.add_argument('action',choices=['poll','diagnose']); mail.add_argument('--uid'); mail.add_argument('--uidvalidity')
     report=commands.add_parser('report'); report.add_argument('action',choices=['send']); report.add_argument('--deliver',action='store_true')
     args=parser.parse_args(argv)
     if args.command=='report' and not args.deliver:
@@ -31,6 +32,14 @@ def main(argv=None):
                     raise ValueError('configured executable unavailable')
             log.info('config_valid')
             return 0
+        if args.command=='mail' and args.action=='diagnose':
+            if args.uid is None:
+                raise ValueError('diagnosis_uid_required')
+            uid=uid_value(args.uid)
+            expected_validity=uid_value(args.uidvalidity) if args.uidvalidity is not None else None
+            mailbox=Mailbox.connect(config)
+            try: return diagnose(mailbox,config,uid,expected_validity=expected_validity)
+            finally: mailbox.close()
         lock_path=config.poll_lock if args.command=='mail' else config.report_lock
         for path in (config.database,lock_path): Path(path).expanduser().parent.mkdir(mode=0o700,parents=True,exist_ok=True)
         with Lock(Path(lock_path).expanduser()):

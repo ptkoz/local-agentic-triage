@@ -2,12 +2,40 @@ import unittest
 import tempfile
 from pathlib import Path
 from unittest.mock import Mock,patch
-from local_agentic_triage.mail.pipeline import poll
+from local_agentic_triage.mail.pipeline import diagnose,poll
 from local_agentic_triage.reporting.store import Store
 from helpers import make_config
 from local_agentic_triage.common.diagnostics import CommandError
+from local_agentic_triage.classifier.core import ModelContentJsonInvalid
 
 class PipelineTests(unittest.TestCase):
+    def test_diagnose_is_read_only_and_reports_safe_specific_error(self):
+        box=Mock(); box.validity='77'; box.raw.return_value=b'Date: Wed, 01 Jan 2025 12:00:00 +0100\nFrom: private@example.invalid\n\nsecret'
+        classifier=Mock(side_effect=ModelContentJsonInvalid('PRIVATE OUTPUT'))
+        with self.assertLogs('local_agentic_triage',level='INFO') as logs:
+            self.assertEqual(diagnose(box,make_config(),'9',classifier),1)
+        output='\n'.join(logs.output)
+        self.assertIn('mail_diagnosis_failed uid=9 uidvalidity=77 stage=classify error=model_content_json_invalid',output)
+        for private in ('private@example.invalid','secret','PRIVATE OUTPUT'):
+            self.assertNotIn(private,output)
+        box.raw.assert_called_once_with('9'); box.internal_date.assert_not_called()
+        box.archive.assert_not_called(); box.leave.assert_not_called()
+        classifier.assert_called_once()
+
+    def test_diagnose_rejects_uidvalidity_mismatch_before_read(self):
+        box=Mock(); box.validity='77'; classifier=Mock()
+        with self.assertLogs('local_agentic_triage',level='ERROR') as logs:
+            self.assertEqual(diagnose(box,make_config(),'9',classifier,expected_validity='76'),1)
+        self.assertIn('mail_diagnosis_identity_failed uid=9 error=uidvalidity_mismatch','\n'.join(logs.output))
+        box.raw.assert_not_called(); box.internal_date.assert_not_called(); classifier.assert_not_called()
+
+    def test_diagnose_internal_date_success_has_no_mutations(self):
+        box=Mock(); box.validity='77'; box.raw.return_value=b'From: synthetic@example.invalid\n\nbody'; box.internal_date.return_value='2026-10-31T01:27:00+01:00'
+        classifier=Mock(return_value={'destination':'leave','summary':None,'events':[]})
+        with self.assertLogs('local_agentic_triage',level='INFO') as logs:
+            self.assertEqual(diagnose(box,make_config(),'9',classifier,expected_validity='77'),0)
+        self.assertIn('mail_diagnosis_completed uid=9 uidvalidity=77 stage=classify','\n'.join(logs.output))
+        box.internal_date.assert_called_once_with('9'); box.archive.assert_not_called(); box.leave.assert_not_called()
     def test_archive_without_valid_header_date_uses_imap_internal_date(self):
         for raw in (b'From: sender\n\nbody',b'Date: not-a-date\nFrom: sender\n\nbody',b'Date: Fri, 31 Oct 2026 01:27:00\nFrom: sender\n\nbody'):
             with tempfile.TemporaryDirectory() as d:
@@ -21,7 +49,7 @@ class PipelineTests(unittest.TestCase):
 
     def test_command_failure_logs_uid_and_numeric_returncode(self):
         with tempfile.TemporaryDirectory() as d:
-            store=Store(Path(d)/'db'); box=Mock()
+            store=Store(Path(d)/'db'); box=Mock(); box.validity='77'
             box.candidates.return_value=['9']; box.source_key.return_value='key'
             box.raw.return_value=b'\nbody'
             box.internal_date.return_value='2026-10-31T01:27:00+01:00'
@@ -29,7 +57,7 @@ class PipelineTests(unittest.TestCase):
             events=Mock(side_effect=CommandError('event_command_failed',17))
             with self.assertLogs('local_agentic_triage',level='ERROR') as logs:
                 self.assertEqual(poll(box,store,make_config(),classifier,events),1)
-            self.assertIn('uid=9 stage=events error=event_command_failed returncode=17','\n'.join(logs.output))
+            self.assertIn('uid=9 uidvalidity=77 stage=events error=event_command_failed returncode=17','\n'.join(logs.output))
             store.close()
 
     def test_archive_retry_does_not_reclassify_or_rerun_events(self):
@@ -76,14 +104,14 @@ class PipelineTests(unittest.TestCase):
 
     def test_invalid_internal_date_stops_before_private_processing(self):
         with tempfile.TemporaryDirectory() as d:
-            store=Store(Path(d)/'db'); box=Mock()
+            store=Store(Path(d)/'db'); box=Mock(); box.validity='77'
             box.candidates.return_value=['9']; box.source_key.return_value='key'; box.raw.return_value=b'From: sender\n\nbody'
             box.internal_date.side_effect=ValueError('PRIVATE INTERNAL DATE')
             classifier=Mock(); events=Mock()
             with self.assertLogs('local_agentic_triage',level='ERROR') as logs:
                 self.assertEqual(poll(box,store,make_config(),classifier,events),1)
             output='\n'.join(logs.output)
-            self.assertIn('uid=9 stage=read error=value_error',output); self.assertNotIn('PRIVATE',output)
+            self.assertIn('uid=9 uidvalidity=77 stage=read error=value_error',output); self.assertNotIn('PRIVATE',output)
             classifier.assert_not_called(); events.assert_not_called(); box.archive.assert_not_called(); box.leave.assert_not_called()
             self.assertIsNone(store.prepared('key')); store.close()
 
@@ -112,14 +140,14 @@ class PipelineTests(unittest.TestCase):
     def test_info_and_error_logs_identify_action_without_private_data(self):
         with tempfile.TemporaryDirectory() as d:
             store=Store(Path(d)/'db'); box=Mock()
-            box.candidates.return_value=['9']; box.source_key.return_value='private-key'
+            box.validity='77'; box.candidates.return_value=['9']; box.source_key.return_value='private-key'
             box.raw.return_value=b'From: secret@example.invalid\nSubject: private subject\n\nprivate body'
             box.internal_date.return_value='2026-10-31T01:27:00+01:00'
             classifier=Mock(side_effect=ValueError('archive summary')); events=Mock()
             with self.assertLogs('local_agentic_triage',level='INFO') as logs:
                 self.assertEqual(poll(box,store,make_config(),classifier,events),1)
             output='\n'.join(logs.output)
-            for expected in ('mail_poll_started','mail_candidates_discovered count=1','mail_item_started item=1 total=1 uid=9','mail_item_action item=1 uid=9 stage=classify','mail_item_failed item=1 uid=9 stage=classify error=value_error','mail_poll_completed candidates=1 completed=0 failures=1'):
+            for expected in ('mail_poll_started','mail_candidates_discovered count=1','mail_item_started item=1 total=1 uid=9 uidvalidity=77','mail_item_action item=1 uid=9 stage=classify','mail_item_failed item=1 uid=9 uidvalidity=77 stage=classify error=value_error','mail_poll_completed candidates=1 completed=0 failures=1'):
                 self.assertIn(expected,output)
             for private in ('private-key','secret@example.invalid','private subject','private body'):
                 self.assertNotIn(private,output)
