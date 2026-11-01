@@ -13,21 +13,10 @@ TIMEOUT=120
 MAX_RESPONSE_BYTES=1000000
 MAIL_FIELD_BUDGETS={'sent_date':256,'sender':1024,'subject':2048,'body':6400}
 TRUNCATION='[content truncated]'
-CLASSIFICATION_SCHEMA={
-    'type':'json_schema',
-    'json_schema':{
-        'name':'mail_classification','strict':True,
-        'schema':{
-            'type':'object','additionalProperties':False,
-            'required':['destination','summary'],
-            'properties':{
-                'destination':{'type':'string','enum':['leave','archive']},
-                'summary':{'type':['string','null']},
+def response_schema(package,name):
+    return json.loads(files(package).joinpath(name+'.json').read_text(encoding='utf-8'))
 
-            },
-        },
-    },
-}
+CLASSIFICATION_SCHEMA=response_schema(__package__,'destination')
 
 class ModelEnvelopeJsonInvalid(ValueError): pass
 class ModelContentJsonInvalid(ValueError): pass

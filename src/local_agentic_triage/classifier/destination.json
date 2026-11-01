@@ -1,0 +1,30 @@
+{
+  "type": "json_schema",
+  "json_schema": {
+    "name": "mail_classification",
+    "strict": true,
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "destination",
+        "summary"
+      ],
+      "properties": {
+        "destination": {
+          "type": "string",
+          "enum": [
+            "leave",
+            "archive"
+          ]
+        },
+        "summary": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

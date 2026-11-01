@@ -1,7 +1,7 @@
 from importlib.resources import files
 from datetime import datetime, timezone
 import json
-from local_agentic_triage.classifier.core import CONTEXT_TOKENS, MAX_TOKENS, chat_completion, strict_json, timestamp, validate, mail_payload
+from local_agentic_triage.classifier.core import CONTEXT_TOKENS, MAX_TOKENS, chat_completion, strict_json, timestamp, validate, mail_payload, response_schema
 
 def prompt(): return files(__package__).joinpath('duplicate.md').read_text(encoding='utf-8')
 
@@ -13,20 +13,8 @@ ERROR_REASONS={'search_failed','create_failed','verification_failed','invalid_in
 # context. Reserve the prompt, schema, framing, and maximum output. Reject the
 # whole user payload rather than truncate nearby rows and hide a duplicate.
 EVENT_TEMPLATE_OVERHEAD_BYTES=1024
-def batch_schema(name,properties):
-    return {'type':'json_schema','json_schema':{'name':name,'strict':True,'schema':{
-        'type':'object','additionalProperties':False,'required':['results'],
-        'properties':{'results':{'type':'array','items':{
-            'type':'object','additionalProperties':False,'required':list(properties),
-            'properties':properties}}}}}}
-
-DUPLICATE_SCHEMA=batch_schema('event_duplicates',{
-    'index':{'type':'integer'},
-    'outcome':{'type':'string','enum':['existing','possible_duplicate','no_match']}})
-COMPLETION_SCHEMA=batch_schema('event_completion',{
-    'index':{'type':'integer'},'outcome':{'type':'string','enum':['complete','skipped']},
-    'reason':{'type':['string','null'],'enum':[None,'missing_end']},
-    'estimated_end':{'type':['string','null']}})
+DUPLICATE_SCHEMA=response_schema(__package__,'duplicate')
+COMPLETION_SCHEMA=response_schema(__package__,'completion')
 
 class ModelRequestFailed(RuntimeError):
     pass
@@ -183,14 +171,7 @@ def process(events,config, *, clock=None):
 def extraction_prompt():
     return files(__package__).joinpath('extraction.md').read_text(encoding='utf-8')
 
-EXTRACTION_SCHEMA={
-    'type':'json_schema','json_schema':{'name':'event_extraction','strict':True,'schema':{
-        'type':'object','additionalProperties':False,'required':['events'],
-        'properties':{'events':{'type':'array','items':{
-            'type':'object','additionalProperties':False,
-            'required':['title','start','end','date_note'],
-            'properties':{'title':{'type':'string'},
-                          **{key:{'type':['string','null']} for key in ('start','end','date_note')}}}}}}}}
+EXTRACTION_SCHEMA=response_schema(__package__,'extraction')
 
 def extract(mail):
     result=chat_completion([{'role':'system','content':extraction_prompt()},

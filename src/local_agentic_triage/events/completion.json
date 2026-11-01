@@ -1,0 +1,57 @@
+{
+  "type": "json_schema",
+  "json_schema": {
+    "name": "event_completion",
+    "strict": true,
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "results"
+      ],
+      "properties": {
+        "results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "index",
+              "outcome",
+              "reason",
+              "estimated_end"
+            ],
+            "properties": {
+              "index": {
+                "type": "integer"
+              },
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "complete",
+                  "skipped"
+                ]
+              },
+              "reason": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  null,
+                  "missing_end"
+                ]
+              },
+              "estimated_end": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
