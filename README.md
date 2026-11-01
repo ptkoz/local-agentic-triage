@@ -44,7 +44,8 @@ placeholder is replaced. Set all of these explicitly:
 - Himalaya account, inbox, and archive mailbox;
 - Discord channel and user ID;
 - the one allowed Calendar name;
-- absolute Himalaya, Hermes, SQLite database, poll-lock, and report-lock paths.
+- absolute Himalaya, Hermes, SQLite database, poll-lock, report-lock, and shared
+  Discord delivery-lock paths.
 
 Unknown keys, unresolved placeholders, relative paths, control characters, and
 invalid Discord identifiers are rejected. Himalaya account and mailbox values
@@ -67,7 +68,8 @@ These commands have live effects and belong only in authorized deployment:
 ```
 
 Put `--config /absolute/path/config.toml` before the command to override the
-platform default. Poll and report use independent nonblocking locks. Exit 0 is
+platform default. Poll and report use independent nonblocking run locks. Their
+Discord sends additionally share one blocking delivery lock. Exit 0 is
 success, 1 is an operational failure, 2 is CLI misuse, and 75 means the lock is
 busy. Logs contain technical stages, fixed error codes, and numeric IMAP UIDs,
 never private mail or model content.
@@ -78,9 +80,10 @@ runbook](docs/debugging.md) for UID/UIDVALIDITY scope, error-code meanings,
 privacy rules, and the exact no-mutation procedure.
 
 The poll LaunchAgent runs every 300 seconds. The report LaunchAgent runs at
-local 18:00. It retries pending rows first, then sends one mentioned summary
-counting every archive in the frozen Europe/Warsaw interval, including rows
-already sent immediately and intervals with zero archives. See [architecture](docs/architecture.md) for retry and delivery
+local 18:00. It retries all pending rows first, then sends one mentioned summary
+counting every archive report delivered since the previous successful summary,
+including old backlog delivered by the current run and summaries with zero new
+reports. See [architecture](docs/architecture.md) for retry and delivery
 semantics, [security](docs/security.md) for privacy boundaries, and the
 [debugging runbook](docs/debugging.md) for production diagnosis.
 

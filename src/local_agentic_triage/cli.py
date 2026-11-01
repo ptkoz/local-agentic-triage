@@ -41,7 +41,7 @@ def main(argv=None):
             try: return diagnose(mailbox,config,uid,expected_validity=expected_validity)
             finally: mailbox.close()
         lock_path=config.poll_lock if args.command=='mail' else config.report_lock
-        for path in (config.database,lock_path): Path(path).expanduser().parent.mkdir(mode=0o700,parents=True,exist_ok=True)
+        for path in (config.database,lock_path,config.delivery_lock): Path(path).expanduser().parent.mkdir(mode=0o700,parents=True,exist_ok=True)
         with Lock(Path(lock_path).expanduser()):
             store=Store(Path(config.database).expanduser())
             try:

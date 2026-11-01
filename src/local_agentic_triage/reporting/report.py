@@ -2,8 +2,10 @@ import logging
 import re
 import unicodedata
 from datetime import datetime, timezone
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from local_agentic_triage.common.lock import Lock
 from local_agentic_triage.common.diagnostics import error_code, error_suffix, CommandError
 
 log=logging.getLogger('local_agentic_triage')
@@ -52,11 +54,10 @@ def label(value,comma=False):
     return f'{value.day} {MONTHS[value.month]}{separator}{value:%H:%M}'
 
 
-def header(user_id,start,end,count):
+def header(user_id,count):
     if not re.fullmatch(r'[1-9][0-9]{0,19}',user_id) or int(user_id)>MAX_SNOWFLAKE: raise ValueError('invalid discord user id')
-    if boundary(end)<boundary(start): raise ValueError('invalid report period')
     wording='wiadomości** przeniesionej' if count==1 else 'wiadomościach** przeniesionych'
-    return f'<@{user_id}>, powyżej znajduje się informacja o **{count} {wording} do Archiwum między {label(start)} a {label(end)}:'
+    return f'<@{user_id}>, powyżej znajduje się informacja o **{count} {wording} do Archiwum od poprzedniego podsumowania:'
 
 
 def record_message(row,limit):
@@ -86,11 +87,16 @@ def deliver(runner,config,text,kind,index=None):
 
 def send(store,config,at=None,*,runner=None):
     if runner is None: raise RuntimeError('report_delivery_disabled')
+    with Lock(Path(config.delivery_lock),blocking=True):
+        return send_locked(store,config,at,runner=runner)
+
+
+def send_locked(store,config,at=None,*,runner):
     end=at or datetime.now(timezone.utc)
     if not isinstance(end,datetime) or end.tzinfo is None: raise ValueError('invalid report boundary')
     end=end.astimezone(timezone.utc)
-    start,stamp=store.report_window(end.isoformat())
-    rows=store.pending(stamp)
+    _,stamp=store.report_window(end.isoformat())
+    rows=store.pending()
     messages=[record_message(row,config.discord_limit) for row in rows]
     log.info('report_started rows=%d',len(rows))
     for index,(row,text) in enumerate(zip(rows,messages),1):
@@ -98,7 +104,8 @@ def send(store,config,at=None,*,runner=None):
         deliver(runner,config,text,'record',index)
         store.reported([row['source_key']])
         log.info('report_record_completed record=%d',index)
-    summary=header(config.discord_user_id,start,stamp,store.moved_count(start,stamp))
+    cutoff=store.timestamp()
+    summary=header(config.discord_user_id,store.reported_since_summary(cutoff))
     if len(summary)>config.discord_limit: raise ValueError('report summary too long')
     deliver(runner,config,summary,'summary')
-    store.complete_report_window(stamp)
+    store.complete_report_window(stamp,summary_cutoff=cutoff)

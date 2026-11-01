@@ -10,6 +10,7 @@ hermes = "@HERMES@"
 database = "@HOME@/Library/Application Support/local-agentic-triage/triage.sqlite3"
 poll_lock = "@HOME@/Library/Caches/local-agentic-triage/mail-poller.lock"
 report_lock = "@HOME@/Library/Caches/local-agentic-triage/daily-report.lock"
+delivery_lock = "@HOME@/Library/Caches/local-agentic-triage/discord-delivery.lock"
 # Deliberate local-memory tradeoff: 0 accepts any raw message size in memory;
 # model-facing fields remain separately bounded. Set a positive byte limit if needed.
 max_mail_bytes = 0

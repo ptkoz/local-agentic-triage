@@ -34,22 +34,36 @@ class StoreTests(unittest.TestCase):
             self.assertIn('sent_at',[r[1] for r in s.db.execute('pragma table_info(reports)')])
             s.close()
 
-    def test_window_count_uses_ready_interval_and_excludes_undelivered_rows(self):
+    def test_summary_count_uses_reported_interval_and_first_summary_includes_history(self):
         with tempfile.TemporaryDirectory() as d:
             s=Store(Path(d)/'db')
             start='2026-11-01T07:00:00+00:00'; end='2026-11-01T17:00:00+00:00'
-            s.complete_report_window(start)
-            for key,ready in (('start',start),('inside','2026-11-01T08:00:00+00:00'),('end',end),('later','2026-11-01T18:00:00+00:00')):
+            s.complete_report_window(start,summary_cutoff=start)
+            for key,reported in (('start',start),('inside','2026-11-01T08:00:00+00:00'),('end',end),('later','2026-11-01T18:00:00+00:00')):
                 s.prepare(key,'sender','summary',sent_at=start)
-                s.db.execute('UPDATE reports SET ready_at=?,reported_at=? WHERE source_key=?',(ready,ready,key))
+                s.db.execute('UPDATE reports SET ready_at=?,reported_at=? WHERE source_key=?',('2026-10-01T00:00:00+00:00',reported,key))
             s.prepare('undelivered','sender','summary',sent_at=start)
             s.db.execute('UPDATE reports SET ready_at=? WHERE source_key=?',('2026-11-01T09:00:00+00:00','undelivered'))
             s.prepare('old-retry','sender','summary',sent_at=start)
             s.db.execute('UPDATE reports SET ready_at=?,reported_at=? WHERE source_key=?',('2026-11-01T06:00:00+00:00','2026-11-01T10:00:00+00:00','old-retry'))
             s.db.commit()
             self.assertEqual(s.report_window(end),(start,end))
-            self.assertEqual(s.moved_count(start,end),2)
+            self.assertEqual(s.reported_since_summary(end),3)
+            with s.db: s.db.execute('DELETE FROM summary_meta')
+            self.assertEqual(s.reported_since_summary(end),4)
             s.close()
+
+    def test_existing_report_boundary_seeds_first_summary_cutoff(self):
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'db'; boundary='2026-11-10T17:00:00+00:00'
+            db=sqlite3.connect(path)
+            db.execute('CREATE TABLE reports (source_key TEXT PRIMARY KEY, sender TEXT NOT NULL, sent_at TEXT, summary TEXT NOT NULL, created_at TEXT NOT NULL, ready_at TEXT, reported_at TEXT)')
+            db.execute('CREATE TABLE report_meta (id INTEGER PRIMARY KEY CHECK(id=1), last_end_at TEXT NOT NULL)')
+            db.execute('INSERT INTO report_meta VALUES (1,?)',(boundary,))
+            db.commit(); db.close()
+            store=Store(path)
+            self.assertEqual(store.last_summary_cutoff(),boundary)
+            store.close()
 
     def test_legacy_window_migration_is_atomic_and_infers_acknowledged_rows(self):
         with tempfile.TemporaryDirectory() as d:

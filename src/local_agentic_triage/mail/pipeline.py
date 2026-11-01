@@ -1,6 +1,8 @@
 import logging
 import json
 from dataclasses import replace
+from pathlib import Path
+from local_agentic_triage.common.lock import Lock
 from local_agentic_triage.mail.mime import parse
 from local_agentic_triage.mail.imap import uid_value
 from local_agentic_triage.classifier.core import classify, validate_disposition, bound_mail
@@ -45,10 +47,12 @@ def poll(mailbox,store,config,classifier=classify,event_processor=process, *, ex
     def report_ready(key):
         if runner is None: return
         try:
-            row=store.prepared(key)
-            text=record_message(row,config.discord_limit)
-            deliver(runner,config,text,'immediate')
-            store.reported([key])
+            with Lock(Path(config.delivery_lock),blocking=True):
+                row=store.prepared(key)
+                if row['reported_at'] is not None: return
+                text=record_message(row,config.discord_limit)
+                deliver(runner,config,text,'immediate')
+                store.reported([key])
         except Exception as exc:
             log.error('mail_immediate_report_failed error=%s%s',error_code(exc),error_suffix(exc))
 

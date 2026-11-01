@@ -8,7 +8,7 @@ REQUIRED = (
     'account', 'inbox', 'archive', 'channel', 'discord_user_id', 'calendar',
     'himalaya', 'hermes', 'database', 'poll_lock', 'report_lock',
 )
-PATHS = ('himalaya', 'hermes', 'database', 'poll_lock', 'report_lock')
+PATHS = ('himalaya', 'hermes', 'database', 'poll_lock', 'report_lock', 'delivery_lock')
 PLACEHOLDER = re.compile(r'@[A-Z][A-Z0-9_]*@')
 SNOWFLAKE = r'[1-9][0-9]{0,19}'
 
@@ -26,6 +26,7 @@ class Config:
     database: str
     poll_lock: str
     report_lock: str
+    delivery_lock: str
     max_mail_bytes: int = 0
     discord_limit: int = 1900
     timeout: int = 150
@@ -68,4 +69,6 @@ def load(path=DEFAULT_PATH):
         expected = int if key in {'max_mail_bytes', 'discord_limit', 'timeout'} else str
         if type(value) is not expected:
             raise ValueError('invalid config type')
+    if 'delivery_lock' not in data:
+        data['delivery_lock'] = data['report_lock'] + '.delivery'
     return Config(**data)

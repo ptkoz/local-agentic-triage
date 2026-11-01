@@ -1,7 +1,7 @@
 import unittest
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock,patch
+from unittest.mock import MagicMock,Mock,patch
 from local_agentic_triage.mail.pipeline import diagnose,poll
 from local_agentic_triage.reporting.store import Store
 from helpers import make_config
@@ -45,13 +45,17 @@ class PipelineTests(unittest.TestCase):
                     classifier=Mock(return_value={'destination':'archive','summary':'private summary'})
                     events=Mock(return_value=self.event_result())
                     kwargs={} if outcome=='disabled' else {'runner':runner}
-                    with patch('subprocess.run',side_effect=AssertionError('live send forbidden')) as live, self.assertLogs('local_agentic_triage',level='INFO') as logs:
+                    lock=Mock(return_value=MagicMock())
+                    with patch('subprocess.run',side_effect=AssertionError('live send forbidden')) as live, \
+                         patch('local_agentic_triage.mail.pipeline.Lock',lock), \
+                         self.assertLogs('local_agentic_triage',level='INFO') as logs:
                         result=poll(box,store,make_config(),classifier,events,**kwargs)
                     self.assertEqual(result,int(outcome=='archive_failure'))
                     row=store.prepared(key)
                     if outcome=='success':
                         runner.assert_called_once(); self.assertIsNotNone(row['reported_at'])
                         self.assertGreaterEqual(row['reported_at'],row['ready_at'])
+                        lock.assert_called_once_with(Path(make_config().delivery_lock),blocking=True)
                     else:
                         self.assertIsNone(row['reported_at'])
                         if outcome!='failure': runner.assert_not_called()
@@ -60,6 +64,24 @@ class PipelineTests(unittest.TestCase):
                     for private in ('secret@example.invalid','private summary','private body','PRIVATE',key):
                         self.assertNotIn(private,' '.join(logs.output))
                     live.assert_not_called(); store.close()
+
+    def test_immediate_delivery_rechecks_acknowledgement_after_shared_lock(self):
+        with tempfile.TemporaryDirectory() as d:
+            store=Store(Path(d)/'db'); key='account:inbox:77:9'
+            box=Mock(validity='77'); box.source_key.return_value=key
+            box.candidates.return_value=['9']; box.all_uids.return_value={'9'}
+            box.raw.return_value=b'Date: Sat, 31 Oct 2026 01:27:00 +0100\nFrom: sender@example.invalid\n\nbody'
+            classifier=Mock(return_value={'destination':'archive','summary':'summary'})
+            events=Mock(return_value=self.event_result())
+            lock=Mock(return_value=MagicMock())
+            lock.return_value.__enter__.side_effect=lambda: store.reported(
+                [key],at='2026-11-01T17:00:00+00:00')
+            runner=Mock(return_value=Mock(returncode=0))
+            with patch('local_agentic_triage.mail.pipeline.Lock',lock):
+                self.assertEqual(poll(box,store,make_config(),classifier,events,runner=runner),0)
+            runner.assert_not_called()
+            self.assertEqual(store.prepared(key)['reported_at'],'2026-11-01T17:00:00+00:00')
+            store.close()
 
     def test_diagnose_is_read_only_and_reports_safe_specific_error(self):
         box=Mock(); box.validity='77'; box.raw.return_value=b'Date: Wed, 01 Jan 2025 12:00:00 +0100\nFrom: private@example.invalid\n\nsecret'
