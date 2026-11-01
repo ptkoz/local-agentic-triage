@@ -69,6 +69,32 @@ class ContentTests(unittest.TestCase):
         self.assertEqual(chat.call_args_list[1].args[0][0]['content'],core.disposition_prompt())
 
 
+    def test_destination_http_request_contains_generated_summary_and_source(self):
+        mail=parse(b'From: sender@example.invalid\nSubject: Synthetic\n\nSynthetic body',1000)
+        class Response:
+            def __init__(self,content): self.content=content
+            def __enter__(self): return self
+            def __exit__(self,*args): pass
+            def read(self):
+                return json.dumps({'choices':[{'finish_reason':'stop','message':{
+                    'content':json.dumps(self.content)}}]}).encode()
+        with patch('urllib.request.OpenerDirector.open',side_effect=[
+                Response({'summary':'Syntetyczny opis.'}),Response({'destination':'archive'})]) as call:
+            result=classify(mail)
+        first,second=[json.loads(c.args[0].data) for c in call.call_args_list]
+        self.assertEqual(json.loads(first['messages'][1]['content']),mail_payload(mail))
+        self.assertEqual(json.loads(second['messages'][1]['content']),{
+            'summary':'Syntetyczny opis.','mail':mail_payload(mail)})
+        self.assertEqual(result,{'destination':'archive','summary':'Syntetyczny opis.'})
+
+    def test_classify_does_not_revalidate_assembled_disposition(self):
+        import local_agentic_triage.classifier.core as core
+        mail=parse(b'From: sender@example.invalid\n\nSynthetic',1000)
+        with patch.object(core,'chat_completion',side_effect=[
+                {'summary':'Opis.'},{'destination':'archive'}]), \
+             patch.object(core,'validate_disposition',side_effect=AssertionError('redundant validation')):
+            self.assertEqual(classify(mail),{'destination':'archive','summary':'Opis.'})
+
     def test_classifier_distinguishes_envelope_and_content_json(self):
         class Response:
             def __init__(self,payload): self.payload=payload
