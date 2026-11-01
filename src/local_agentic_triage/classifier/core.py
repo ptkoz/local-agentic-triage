@@ -16,6 +16,7 @@ def response_schema(package,name):
     return json.loads(files(package).joinpath(name+'.json').read_text(encoding='utf-8'))
 
 CLASSIFICATION_SCHEMA=response_schema(__package__,'destination')
+SUMMARY_SCHEMA=response_schema(__package__,'summary')
 
 class ModelEnvelopeJsonInvalid(ValueError): pass
 class ModelContentJsonInvalid(ValueError): pass
@@ -115,14 +116,44 @@ def chat_completion(messages,response_format):
 def disposition_prompt():
     return files(__package__).joinpath('destination.md').read_text(encoding='utf-8')
 
+def summary_prompt():
+    return files(__package__).joinpath('summary.md').read_text(encoding='utf-8')
+
+def validate_destination(obj):
+    if not isinstance(obj,dict) or set(obj)!={'destination'}:
+        raise ValueError('classification keys')
+    if obj['destination'] not in ('leave','archive'):
+        raise ValueError('destination')
+    return obj
+
+def validate_summary(obj):
+    if not isinstance(obj,dict) or set(obj)!={'summary'}:
+        raise ValueError('classification keys')
+    if not isinstance(obj['summary'],str):
+        raise ValueError('archive summary')
+    return obj
+
 def validate_disposition(obj):
     if not isinstance(obj,dict) or set(obj)!={'destination','summary'}:
         raise ValueError('classification keys')
-    validate(obj|{'events':[]})
+    validate_destination({'destination':obj['destination']})
+    if obj['destination']=='leave':
+        if obj['summary'] is not None: raise ValueError('leave summary')
+    else:
+        validate_summary({'summary':obj['summary']})
     return obj
 
 def classify(mail):
-    return validate_disposition(chat_completion([
+    source=mail_payload(mail)
+    summary=validate_summary(chat_completion([
+        {'role':'system','content':summary_prompt()},
+        {'role':'user','content':json.dumps(source,ensure_ascii=False)},
+    ],SUMMARY_SCHEMA))['summary']
+    destination=validate_destination(chat_completion([
         {'role':'system','content':disposition_prompt()},
-        {'role':'user','content':json.dumps(mail_payload(mail),ensure_ascii=False)},
-    ],CLASSIFICATION_SCHEMA))
+        {'role':'user','content':json.dumps({'summary':summary,'mail':source},ensure_ascii=False)},
+    ],CLASSIFICATION_SCHEMA))['destination']
+    return {
+        'destination':destination,
+        'summary':summary if destination=='archive' else None,
+    }

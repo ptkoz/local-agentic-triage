@@ -14,17 +14,21 @@ class HardeningTests(unittest.TestCase):
             with self.subTest(start=start,end=end),self.assertRaises(ValueError):
                 validate(base|{'events':[{'title':'X','start':start,'end':end,'date_note':None}]})
     def test_dmr_bypasses_proxies_and_redirects_and_passes_metadata(self):
-        response=Mock(); response.__enter__=Mock(return_value=response); response.__exit__=Mock(return_value=False)
-        response.read.return_value=json.dumps({'choices':[{'finish_reason':'stop','message':{'content':'{"destination":"leave","summary":null}'}}]}).encode()
-        opener=Mock(); opener.open.return_value=response
+        def response(content):
+            result=Mock(); result.__enter__=Mock(return_value=result); result.__exit__=Mock(return_value=False)
+            result.read.return_value=json.dumps({'choices':[{'finish_reason':'stop','message':{'content':content}}]}).encode()
+            return result
+        opener=Mock(); opener.open.side_effect=[
+            response('{"summary":"Synthetic summary"}'),
+            response('{"destination":"leave"}')]
         with patch('urllib.request.build_opener',return_value=opener) as build,patch('urllib.request.urlopen',side_effect=AssertionError('unsafe open')):
             mail=parse(b'From: sender\nSubject: title\nDate: Wed, 01 Jan 2025 12:00:00 +0100\n\nbody',1000)
             classify(mail)
             handlers=build.call_args.args
             self.assertEqual(handlers[0].proxies,{})
             with self.assertRaises(ValueError): handlers[1].redirect_request(None,None,302,'','', 'https://example.invalid')
-            payload=json.loads(opener.open.call_args.args[0].data)
-            metadata=json.loads(payload['messages'][1]['content'])
+            payload=json.loads(opener.open.call_args_list[1].args[0].data)
+            metadata=json.loads(payload['messages'][1]['content'])['mail']
             self.assertEqual(metadata['subject'],'title')
             self.assertEqual(metadata['sender'],'sender')
     def test_invalid_config_values(self):
