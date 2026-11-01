@@ -143,7 +143,8 @@ For each completed event, deterministic Python validates the whole final object:
 - title is nonempty and within the configured bound;
 - start and end form a complete, compatible all-day or timezone-aware timed
   interval, and end is strictly after start;
-- unresolved uncertainty that prevents a concrete interval is rejected;
+- a retained `date_note` does not block creation when the required fields and
+  concrete interval are valid;
 - location is null or a bounded nonempty string and is passed through only as
   model data derived from direct evidence;
 - the event's end, rather than its start, determines the three-day horizon: a

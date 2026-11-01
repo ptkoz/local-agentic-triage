@@ -52,7 +52,6 @@ def validate_final(event):
     validate_events([event])
     if not event['title'] or not event['title'].strip() or len(event['title'])>200:
         raise FinalSemanticError('event_invalid_title','invalid_title')
-    if event['date_note'] is not None: raise FinalSemanticError('event_unresolved_date','uncertain_date')
     if start_reason(event): raise FinalSemanticError('event_invalid_date','invalid_date')
     if not event['end']: raise FinalSemanticError('event_invalid_date','missing_end')
     try: timestamp(event['end'])

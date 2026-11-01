@@ -31,7 +31,7 @@ class ArchitectureTests(unittest.TestCase):
         from local_agentic_triage.events.calendar import Calendar, canonical
         cases=[({'title':None},'invalid_title'),({'title':' '},'invalid_title'),
                ({'title':'x'*201},'invalid_title'),({'end':None},'missing_end'),
-               ({'end':''},'missing_end'),({'date_note':'unresolved'},'uncertain_date'),
+               ({'end':''},'missing_end'),
                ({'end':'bad'},'invalid_date'),({'end':EVENT['start']},'invalid_date'),
                ({'end':'2099-01-06'},'invalid_date')]
         for change,reason in cases:
@@ -104,6 +104,14 @@ class ArchitectureTests(unittest.TestCase):
             result=core.process(candidates,make_config(),clock=lambda tz=None:NOW)
         return result,chat,nearby,create
 
+    def test_completion_retained_note_does_not_block_creation(self):
+        candidate=EVENT|{'end':None,'date_note':'Synthetic duration evidence'}
+        completed=EVENT|{'date_note':candidate['date_note']}
+        result,chat,nearby,create=self.run_events([candidate],[{'outcome':'create'},completed])
+        self.assertEqual(result['results'],[{'index':0,'outcome':'created','reason':None}])
+        create.assert_called_once_with(completed)
+        core.parse_results(json.dumps(result),[completed])
+
     def test_every_create_gets_full_completion_even_when_complete(self):
         result,chat,nearby,create=self.run_events([EVENT],[{'outcome':'create'},EVENT])
         self.assertEqual(chat.call_count,2)
@@ -125,7 +133,7 @@ class ArchitectureTests(unittest.TestCase):
     def test_unusable_fields_are_not_rejected_before_completion(self):
         for change,reason in (({'title':None},'invalid_title'),({'title':''},'invalid_title'),
                               ({'title':'x'*201},'invalid_title'),({'end':None},'missing_end'),
-                              ({'end':'bad'},'invalid_date'),({'date_note':'alternatives unresolved'},'uncertain_date')):
+                              ({'end':'bad'},'invalid_date')):
             candidate=EVENT|change
             with self.subTest(change=change):
                 result,chat,nearby,create=self.run_events([candidate],[{'outcome':'create'},candidate])
@@ -228,7 +236,7 @@ class ArchitectureTests(unittest.TestCase):
         self.assertEqual(writes,[canonical(EVENT)]*2)
 
     def test_final_interval_and_location_bounds(self):
-        for change in ({'end':EVENT['start']},{'end':'2099-01-01T10:00:00Z'},{'end':'2099-01-06'},{'end':'2099-01-06T10:00:00'},{'location':' '*3},{'location':'x'*1001},{'date_note':''}):
+        for change in ({'end':EVENT['start']},{'end':'2099-01-01T10:00:00Z'},{'end':'2099-01-06'},{'end':'2099-01-06T10:00:00'},{'location':' '*3},{'location':'x'*1001}):
             with self.subTest(change=change),self.assertRaises(ValueError):core.validate_final(EVENT|change)
         core.validate_final(EVENT|{'location':'x'*1000})
 
