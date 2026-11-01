@@ -17,9 +17,12 @@ logging is explicitly disabled.
 Event-enrichment failures log only the UID, a fixed technical error code, and an
 allowed numeric subprocess return code when present. They do not enter the fatal
 mail-failure count or prevent leave/archive disposition.
-Discord delivery is fail-closed: the report function requires an explicit runner,
-and the CLI requires `report send --deliver`. Tests and review probes that omit
-either gate cannot call the real Hermes sender or advance report state.
+Discord delivery requires an explicit runner: direct poll() calls disable
+immediate delivery by default, while production mail poll explicitly injects
+subprocess.run after archive completion. Scheduled reporting additionally requires
+`report send --deliver`. Offline tests inject synthetic runners; they never call
+the real Hermes sender. Delivery failures retain ready/unreported rows and log
+only safe technical metadata.
 Sparse extraction receives the same bounded mail JSON as destination/summary,
 without receiving that pass's output. Later duplicate checking receives only sparse
 title/start/supplied end and minimal nearby title/start/end/all_day rows from the

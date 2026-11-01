@@ -1,12 +1,14 @@
 import logging
 import json
 from dataclasses import replace
+from pathlib import Path
+from local_agentic_triage.common.lock import Lock
 from local_agentic_triage.mail.mime import parse
 from local_agentic_triage.mail.imap import uid_value
 from local_agentic_triage.classifier.core import classify, validate_disposition, bound_mail
 from local_agentic_triage.events.core import process, parse_results, extract
 from local_agentic_triage.common.diagnostics import error_code, error_suffix
-from local_agentic_triage.reporting.report import record_message
+from local_agentic_triage.reporting.report import record_message, deliver
 
 log=logging.getLogger('local_agentic_triage')
 
@@ -34,7 +36,7 @@ def diagnose(mailbox,config,uid,classifier=classify,expected_validity=None):
                   error_code(exc),error_suffix(exc))
         return 1
 
-def poll(mailbox,store,config,classifier=classify,event_processor=process, *, extractor=None):
+def poll(mailbox,store,config,classifier=classify,event_processor=process, *, extractor=None, runner=None):
     extractor=extract if extractor is None else extractor
     failures=0; completed=0
     log.info('mail_poll_started')
@@ -42,6 +44,18 @@ def poll(mailbox,store,config,classifier=classify,event_processor=process, *, ex
     except Exception as exc:
         log.error('mail_candidates_failed error=%s%s',error_code(exc),error_suffix(exc)); return 1
     log.info('mail_candidates_discovered count=%d',len(candidates))
+    def report_ready(key):
+        if runner is None: return
+        try:
+            with Lock(Path(config.delivery_lock),blocking=True):
+                row=store.prepared(key)
+                if row['reported_at'] is not None: return
+                text=record_message(row,config.discord_limit)
+                deliver(runner,config,text,'immediate')
+                store.reported([key])
+        except Exception as exc:
+            log.error('mail_immediate_report_failed error=%s%s',error_code(exc),error_suffix(exc))
+
     def reconcile():
         nonlocal failures
         log.info('mail_reconciliation_started')
@@ -62,6 +76,7 @@ def poll(mailbox,store,config,classifier=classify,event_processor=process, *, ex
             try:
                 if key==mailbox.source_key(uid) and uid not in present:
                     store.ready(key); recovered+=1
+                    report_ready(key)
             except Exception as exc:
                 log.error('mail_reconciliation_failed uid=%s stage=row error=%s%s',uid,error_code(exc),error_suffix(exc))
                 failures+=1
@@ -80,6 +95,7 @@ def poll(mailbox,store,config,classifier=classify,event_processor=process, *, ex
                     stage='report_row_retry'
                     record_message(prepared,config.discord_limit)
                     stage='archive_retry'; mailbox.archive(uid); store.ready(key)
+                    report_ready(key)
                 completed+=1
                 continue
             stage='read'
@@ -116,6 +132,7 @@ def poll(mailbox,store,config,classifier=classify,event_processor=process, *, ex
                 store.prepare(key,mail.sender,result['summary'],sent_at=mail.sent_date)
                 mailbox.archive(uid)
                 store.ready(key)
+                report_ready(key)
             completed+=1
         except Exception as exc:
             log.error('mail_item_failed item=%d uid=%s uidvalidity=%s stage=%s error=%s%s',index,uid,mailbox.validity,stage,error_code(exc),error_suffix(exc))

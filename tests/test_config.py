@@ -22,6 +22,17 @@ class ConfigTests(unittest.TestCase):
                 with self.subTest(key=key), self.assertRaises(ValueError):
                     load(path)
 
+    def test_pre_delivery_lock_config_gets_compatible_default(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'config.toml'
+            old_config = '\n'.join(
+                line for line in config_text().splitlines()
+                if not line.startswith('delivery_lock =')
+            )
+            path.write_text(old_config)
+            config = load(path)
+            self.assertEqual(config.delivery_lock, config.report_lock + '.delivery')
+
     def test_loads_explicit_generic_configuration(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'config.toml'

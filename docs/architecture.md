@@ -220,13 +220,20 @@ SQLite, Seen, or MOVE and are never split or truncated. Event processing is
 then followed, whether successful or not, by INSERT OR IGNORE of an immutable prepared report row with
 ready_at NULL. Only then does Himalaya verify UID presence, add raw `\Seen` by
 UID with `imap store --flag \Seen -- UID`, and move from the configured inbox to
-configured archive. Success sets ready_at. A prepared row found
+configured archive. Success sets ready_at, then immediately sends that row through
+Hermes when a delivery runner is supplied. Successful delivery sets reported_at
+to the actual delivery time. Delivery failure logs only safe metadata and leaves
+the row ready/unreported without failing the poll; scheduled reporting retries it.
+The production CLI explicitly injects subprocess.run; direct poll() calls default
+to no delivery, and tests can inject a synthetic runner. A prepared row found
 on retry preserves the original sender/summary, does not fetch the body, does
-not classify again, and does not rerun events. It retries only IMAP finalization.
+not classify again, and does not rerun events. It retries IMAP finalization, then
+marks ready and attempts immediate delivery.
 A ready row is already finalized. SQLite uses WAL, a busy timeout and parameter
 binding. The `reports` table stores source_key, sender, the normalized message
 timestamp (`sent_at`), summary, created_at, ready_at and reported_at; the single-row `report_state` table preserves one
-in-progress report window across partial delivery failures.
+in-progress scheduled run window across partial delivery failures. Separate
+`summary_meta` state stores the cutoff of the last successfully delivered mention.
 
 There is no transaction spanning IMAP and SQLite. At the beginning and end of
 every poll, reconciliation enumerates prepared rows with ready_at NULL. Only
@@ -234,26 +241,47 @@ keys for the configured account/inbox/UIDVALIDITY are considered. An exact UID s
 without the `\Flagged` filter marks an absent UID ready: MOVE succeeded or the
 message was otherwise removed. Present UIDs remain for normal prepared retry.
 Search/validity failures leave rows unready and fail the poll. Reconciliation
-never reruns classification or events, and adds no queue or schema columns.
+never reruns classification or events; after marking an absent row ready it
+attempts the same immediate delivery. It adds no queue or schema columns.
 If a Calendar call succeeds before a crash preceding prepare, the next call
 relies on configured-calendar semantic search to avoid duplication. A Seen update can succeed
 before a failed MOVE, and is safely repeated on retry.
 
 ## Reports
 
-Ready, unreported rows sort by created_at then source_key. A new empty window
-sends a short notification without a mention and advances the durable boundary;
-a retry after every row was already acknowledged only completes its stale window.
-A nonempty run first sends one introduction with the configured user's mention
-and Europe/Warsaw period. It then sends exactly one Discord message per report
-row in the form `Od **…** z dnia …` followed by the summary as a Discord quote.
+Ready, unreported rows sort by created_at then source_key. Scheduled reporting
+first sends every pending row, including backlog older than the scheduled run
+window, acknowledging each successful delivery immediately with its actual
+delivery time. There is no introduction. After all pending rows succeed, it
+captures a current summary cutoff and sends exactly one final mention. The count
+uses delivery acknowledgements (`reported_at`), not archive readiness: it includes
+rows in `(previous successful summary cutoff, current cutoff]`. When no successful
+summary cutoff exists, the first summary includes every acknowledged row through
+the current cutoff. Undelivered rows are excluded. For example:
+`<@USER_ID>, powyżej znajduje się informacja o **9 wiadomościach** przeniesionych do Archiwum od poprzedniego podsumowania:`.
+The singular uses `1 wiadomości` and `przeniesionej`.
+
+The scheduled run window remains independently frozen in `report_state`, and
+`report_meta.last_end_at` remains its completed boundary. The actual successful
+mention cutoff is stored separately in `summary_meta.last_cutoff_at`; it is never
+derived from `MAX(reported_at)`. Existing installations seed it from the last
+completed `report_meta.last_end_at` boundary during migration. Existing frozen
+windows are preserved across upgrades; legacy `has_rows` state remains compatible
+but is no longer used for delivery or counting decisions.
+
+Each row is one Discord message in the form `**Archiwum**: Od **…** z dnia …`
+followed by the summary as a Discord quote.
 The displayed date comes from the message's valid Date header or, when that is
 missing, malformed or lacks a timezone, from its IMAP INTERNALDATE. Both are
 captured before disposition and converted to Europe/Warsaw; processing time is
 never substituted. Rows lacking a retained Date or INTERNALDATE render `data
 wiadomości niedostępna` and do not block the rest of the report. Each row is
-marked reported immediately after its own send succeeds. A failed send leaves
-that row and all following rows pending under the frozen window. A record that
+marked reported immediately after its own send succeeds. A failed row send leaves
+that row and all following rows pending and prevents the final summary. A failed
+summary does not advance the summary cutoff; its retry counts every report delivered
+since the previous successful mention, including deliveries made after the failure.
+Only successful summary delivery atomically stores the current cutoff, advances
+`report_meta.last_end_at`, and clears the scheduled window. A record that
 cannot fit the configured Discord limit fails before any delivery; records are
 not split or truncated. Sanitization flattens whitespace/control characters and
 neutralizes Discord Markdown, mentions and links while preserving ordinary email
@@ -262,4 +290,10 @@ addresses. There is no LLM call for report delivery.
 Discord delivery is at least once: a crash after sending a record but before
 marking it can cause that record to be duplicated on retry. There is no remote
 idempotency token in the required send command. No success is recorded before
-the subprocess exits successfully.
+the subprocess exits successfully. Immediate and scheduled delivery hold the same
+blocking lock. New configurations set it explicitly; configurations from before
+this setting existed derive it by appending `.delivery` to `report_lock`. The
+scheduled run holds it from pending-row selection through summary persistence, so
+an immediate report cannot appear between the count cutoff and mention. An
+immediate sender rechecks `reported_at` after acquiring the lock, because a waiting
+scheduled run may already have delivered and acknowledged it.

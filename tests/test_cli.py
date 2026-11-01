@@ -1,4 +1,5 @@
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -22,6 +23,7 @@ class CLITests(unittest.TestCase):
             with patch('local_agentic_triage.cli.Mailbox.connect',return_value=box),patch('local_agentic_triage.cli.poll',return_value=0) as poll:
                 self.assertEqual(main(['--config',str(config),'mail','poll']),0)
                 poll.assert_called_once(); box.close.assert_called_once()
+                self.assertIs(poll.call_args.kwargs['runner'],subprocess.run)
             with patch('local_agentic_triage.cli.send') as send:
                 self.assertEqual(main(['--config',str(config),'report','send']),2); send.assert_not_called()
                 self.assertEqual(main(['--config',str(config),'report','send','--deliver']),0)

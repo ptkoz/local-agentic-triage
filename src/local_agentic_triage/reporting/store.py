@@ -23,6 +23,8 @@ class Store:
             if 'has_rows' not in [row[1] for row in self.db.execute('PRAGMA table_info(report_state)')]:
                 self.db.execute('ALTER TABLE report_state ADD COLUMN has_rows INTEGER')
             self.db.execute('CREATE TABLE IF NOT EXISTS report_meta (id INTEGER PRIMARY KEY CHECK(id=1), last_end_at TEXT NOT NULL)')
+            self.db.execute('CREATE TABLE IF NOT EXISTS summary_meta (id INTEGER PRIMARY KEY CHECK(id=1), last_cutoff_at TEXT NOT NULL)')
+            self.db.execute('INSERT OR IGNORE INTO summary_meta (id,last_cutoff_at) SELECT id,last_end_at FROM report_meta WHERE id=1')
             self.db.execute('''UPDATE report_state SET has_rows=CASE WHEN EXISTS (
                 SELECT 1 FROM reports
                 WHERE ready_at IS NOT NULL AND ready_at<=report_state.end_at
@@ -68,10 +70,17 @@ class Store:
         else: query='SELECT * FROM reports WHERE ready_at IS NOT NULL AND ready_at<=? AND reported_at IS NULL ORDER BY created_at, source_key'; args=(end,)
         return [dict(r) for r in self.db.execute(query,args)]
     def last_reported_at(self):
-        reported=self.db.execute('SELECT MAX(reported_at) FROM reports').fetchone()[0]
         meta=self.db.execute('SELECT last_end_at FROM report_meta WHERE id=1').fetchone()
-        boundary=meta[0] if meta else None
-        return max(value for value in (reported,boundary) if value is not None) if reported or boundary else None
+        return meta[0] if meta else None
+    def timestamp(self): return now()
+    def last_summary_cutoff(self):
+        row=self.db.execute('SELECT last_cutoff_at FROM summary_meta WHERE id=1').fetchone()
+        return row[0] if row else None
+    def reported_since_summary(self,end):
+        start=self.last_summary_cutoff()
+        if start is None:
+            return self.db.execute('SELECT COUNT(*) FROM reports WHERE reported_at IS NOT NULL AND reported_at<=?',(end,)).fetchone()[0]
+        return self.db.execute('SELECT COUNT(*) FROM reports WHERE reported_at>? AND reported_at<=?',(start,end)).fetchone()[0]
     def current_report_window(self):
         row=self.db.execute('SELECT start_at,end_at FROM report_state WHERE id=1').fetchone()
         return (row[0],row[1]) if row else None
@@ -92,9 +101,11 @@ class Store:
         return last,end
     def clear_report_window(self):
         with self.db: self.db.execute('DELETE FROM report_state WHERE id=1')
-    def complete_report_window(self,end):
+    def complete_report_window(self,end,*,summary_cutoff=None):
         with self.db:
             self.db.execute('INSERT INTO report_meta (id,last_end_at) VALUES (1,?) ON CONFLICT(id) DO UPDATE SET last_end_at=excluded.last_end_at',(end,))
+            if summary_cutoff is not None:
+                self.db.execute('INSERT INTO summary_meta (id,last_cutoff_at) VALUES (1,?) ON CONFLICT(id) DO UPDATE SET last_cutoff_at=excluded.last_cutoff_at',(summary_cutoff,))
             self.db.execute('DELETE FROM report_state WHERE id=1')
     def reported(self,keys,at=None):
         boundary=at or now()
