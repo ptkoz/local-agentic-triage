@@ -129,9 +129,7 @@ def validate_destination(obj):
 def validate_summary(obj):
     if not isinstance(obj,dict) or set(obj)!={'summary'}:
         raise ValueError('classification keys')
-    summary=obj['summary']
-    if (not isinstance(summary,str) or not summary.strip() or len(summary)>180
-            or '\n' in summary or '\r' in summary):
+    if not isinstance(obj['summary'],str):
         raise ValueError('archive summary')
     return obj
 

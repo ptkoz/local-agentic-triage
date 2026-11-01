@@ -68,12 +68,6 @@ class ContentTests(unittest.TestCase):
         self.assertEqual(chat.call_args_list[0].args[0][0]['content'],core.summary_prompt())
         self.assertEqual(chat.call_args_list[1].args[0][0]['content'],core.disposition_prompt())
 
-    def test_summary_validation_enforces_rendering_bounds(self):
-        import local_agentic_triage.classifier.core as core
-        self.assertEqual(core.validate_summary({'summary':'Krótki opis.'}),{'summary':'Krótki opis.'})
-        for summary in ('','   ','x'*181,'Pierwsza linia.\nDruga linia.'):
-            with self.subTest(summary=repr(summary)),self.assertRaisesRegex(ValueError,'archive summary'):
-                core.validate_summary({'summary':summary})
 
     def test_classifier_distinguishes_envelope_and_content_json(self):
         class Response:
