@@ -7,49 +7,39 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "results"
+        "title",
+        "start",
+        "end",
+        "date_note",
+        "location"
       ],
       "properties": {
-        "results": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "index",
-              "outcome",
-              "reason",
-              "estimated_end"
-            ],
-            "properties": {
-              "index": {
-                "type": "integer"
-              },
-              "outcome": {
-                "type": "string",
-                "enum": [
-                  "complete",
-                  "skipped"
-                ]
-              },
-              "reason": {
-                "type": [
-                  "string",
-                  "null"
-                ],
-                "enum": [
-                  null,
-                  "missing_end"
-                ]
-              },
-              "estimated_end": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              }
-            }
-          }
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "start": {
+          "type": "string"
+        },
+        "end": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "date_note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "location": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       }
     }

@@ -19,11 +19,15 @@
               "title",
               "start",
               "end",
-              "date_note"
+              "date_note",
+              "location"
             ],
             "properties": {
               "title": {
-                "type": "string"
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "start": {
                 "type": [
@@ -38,6 +42,12 @@
                 ]
               },
               "date_note": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "location": {
                 "type": [
                   "string",
                   "null"

@@ -7,32 +7,16 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "results"
+        "outcome"
       ],
       "properties": {
-        "results": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "index",
-              "outcome"
-            ],
-            "properties": {
-              "index": {
-                "type": "integer"
-              },
-              "outcome": {
-                "type": "string",
-                "enum": [
-                  "existing",
-                  "possible_duplicate",
-                  "no_match"
-                ]
-              }
-            }
-          }
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "existing",
+            "possible_duplicate",
+            "create"
+          ]
         }
       }
     }
