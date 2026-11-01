@@ -108,9 +108,10 @@ creation.
    Calendar window. The request then contains the complete extracted event
    unchanged, including `date_note` and `location`, together with the minimal
    nearby Calendar rows for that window. Nearby rows contain
-   title/start/end/all_day/location. Previously processed events from the same
-   extraction may be included as duplicate evidence, but no completed or guessed
-   version of the current event is ever included.
+   title/start/end/all_day/location. Each lookup reads the current Calendar state,
+   including events successfully created while processing earlier candidates from
+   the same message. No completed or guessed version of the current event is
+   included.
 
    Every event reaching this stage has a syntactically valid start, so Python
    performs the corresponding Calendar window lookup before calling the duplicate
@@ -124,9 +125,10 @@ creation.
    in a separate request to the completion model. Python does not first validate
    its remaining fields, date syntax, start date, completeness, or temporal
    eligibility. The completion model receives all five extracted fields and
-   returns one complete event object. It preserves directly supplied values and
-   makes the best supported inference for missing fields needed for creation,
-   including title, start, end, and resolution of `date_note`. It must not invent
+   returns one complete event object. It preserves start exactly and all other
+   directly supplied values, and makes the best supported inference for missing
+   fields needed for creation, including title, end, and resolution of
+   `date_note`. It must not invent
    `location`; a null location stays null unless direct location evidence was
    already present in the extracted event.
 
@@ -151,12 +153,24 @@ For each completed event, deterministic Python validates the whole final object:
   ends beyond it;
 - the entire event is canonicalizable by the deterministic Calendar adapter.
 
-Only a final event passing every rule is queued for creation. Validation failures
-produce a fixed safe event outcome and no write. All events intended for creation
-are validated, and the time gate is rechecked for the complete creation set,
-before the first Calendar write. Each actual create repeats the temporal guard
-and verifies exact readback. A later write/readback failure can still leave an
-earlier verified creation in place; retries rely on per-event duplicate checking.
+### Sequential processing and write visibility
+
+Events from one extraction are processed sequentially in extraction order. Each
+event completes its entire lookup, duplicate decision, completion, final
+validation, and verified Calendar creation (or terminal skip) before processing
+the next event. Calendar lookups are fresh per event, never prefetched or reused
+across candidates; creation is not deferred until a batch has been processed.
+
+Consequently, if two extracted events describe the same occurrence, a successful
+creation of the first is visible to the second event's lookup. An `existing` or
+`possible_duplicate` decision terminates only the current event: no completion or
+creation follows for that event, and any remaining candidates may still proceed.
+
+Only a final event passing every rule is created. Validation failures produce a
+fixed safe event outcome and no write. Each actual create repeats the temporal
+guard and verifies exact readback before the next candidate begins. A later
+write/readback failure can leave an earlier verified creation in place; retries
+rely on fresh per-event Calendar lookup and duplicate checking.
 
 Model user payloads retain conservative input/context budgets and fail closed
 without truncating event or nearby data. All input strings are untrusted data in
