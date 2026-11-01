@@ -29,7 +29,7 @@ class ReportTests(unittest.TestCase):
         start=datetime(2026,11,8,16,44,tzinfo=UTC); end=datetime(2026,11,9,17,0,tzinfo=UTC)
         self.assertEqual(header('2',start,end,9),'<@2>, powyżej znajduje się informacja o **9 wiadomościach** przeniesionych do Archiwum między 8 lis 17:44 a 9 lis 18:00:')
         row={'source_key':'key','created_at':'2099-01-01T00:00:00+00:00','sent_at':'2026-10-31T00:27:00+00:00','sender':'Example Sender <sender@example.invalid>','summary':'Nadawca przesłał syntetyczne powiadomienie.'}
-        self.assertEqual(record_message(row,1900),'Od **Example Sender ‹sender@example.invalid›** z dnia 31 paź, 01:27\n> Nadawca przesłał syntetyczne powiadomienie.')
+        self.assertEqual(record_message(row,1900),'**Archiwum**: Od **Example Sender ‹sender@example.invalid›** z dnia 31 paź, 01:27\n> Nadawca przesłał syntetyczne powiadomienie.')
         with self.assertRaises(ValueError): record_message(row|{'summary':'x'*2000},1900)
 
     def test_delivery_requires_explicit_runner_before_state_access(self):
@@ -45,7 +45,7 @@ class ReportTests(unittest.TestCase):
                 store.db.execute('INSERT INTO reports (source_key,sender,sent_at,summary,created_at,ready_at) VALUES (?,?,?,?,?,?)',('legacy','a@example.com',None,'Summary','2026-11-09T18:13:00+00:00','2026-11-09T18:13:00+00:00'))
             runner=Mock(return_value=Mock(returncode=0))
             send(store,make_config(),datetime(2026,11,10,17,0,tzinfo=UTC),runner=runner)
-            self.assertEqual(runner.call_args_list[0].kwargs['input'],'Od **a@example.com** — data wiadomości niedostępna\n> Summary')
+            self.assertEqual(runner.call_args_list[0].kwargs['input'],'**Archiwum**: Od **a@example.com** — data wiadomości niedostępna\n> Summary')
             self.assertIsNotNone(store.db.execute('SELECT reported_at FROM reports WHERE source_key=?',('legacy',)).fetchone()[0]); store.close()
 
     def test_rows_then_summary_and_per_row_ack(self):
@@ -61,8 +61,8 @@ class ReportTests(unittest.TestCase):
         send(store,make_config(),at,runner=runner)
         self.assertEqual(runner.call_count,3)
         self.assertIn('**9 wiadomościach**',runner.call_args_list[2].kwargs['input'])
-        self.assertEqual(runner.call_args_list[0].kwargs['input'],'Od **a@example.com** z dnia 9 lis, 19:13\n> Pierwsze.')
-        self.assertEqual(runner.call_args_list[1].kwargs['input'],'Od **b@example.com** z dnia 9 lis, 20:14\n> Drugie.')
+        self.assertEqual(runner.call_args_list[0].kwargs['input'],'**Archiwum**: Od **a@example.com** z dnia 9 lis, 19:13\n> Pierwsze.')
+        self.assertEqual(runner.call_args_list[1].kwargs['input'],'**Archiwum**: Od **b@example.com** z dnia 9 lis, 20:14\n> Drugie.')
         self.assertEqual([call.args for call in store.reported.call_args_list],[(['a'],),(['b'],)])
         store.complete_report_window.assert_called_once_with('2026-11-10T17:00:00+00:00')
 

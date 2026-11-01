@@ -264,8 +264,8 @@ start defaults to one day before the captured end. Existing frozen windows are
 preserved across upgrades; legacy has_rows state remains compatible but is no
 longer used for delivery decisions. No schema columns are added.
 
-Each row is one Discord message in the form `Od **…** z dnia …` followed by the
-summary as a Discord quote.
+Each row is one Discord message in the form `**Archiwum**: Od **…** z dnia …`
+followed by the summary as a Discord quote.
 The displayed date comes from the message's valid Date header or, when that is
 missing, malformed or lacks a timezone, from its IMAP INTERNALDATE. Both are
 captured before disposition and converted to Europe/Warsaw; processing time is

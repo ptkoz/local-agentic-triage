@@ -63,9 +63,9 @@ def record_message(row,limit):
     if not 100<=limit<=2000: raise ValueError('report limit invalid')
     sender=sanitize(row['sender']); summary=sanitize(row['summary'])
     if row['sent_at']:
-        text=f'Od **{sender}** z dnia {label(row["sent_at"],comma=True)}\n> {summary}'
+        text=f'**Archiwum**: Od **{sender}** z dnia {label(row["sent_at"],comma=True)}\n> {summary}'
     else:
-        text=f'Od **{sender}** — data wiadomości niedostępna\n> {summary}'
+        text=f'**Archiwum**: Od **{sender}** — data wiadomości niedostępna\n> {summary}'
     if len(text)>limit: raise ValueError('report record too long')
     return text
 
