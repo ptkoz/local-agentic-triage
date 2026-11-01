@@ -6,7 +6,7 @@ executable/data paths, account/mailbox names, Discord targets, calendar name and
 limits. Himalaya v2.1.0 is the sole mail boundary and owns its already-configured
 credentials. Python never reads its config, retrieves passwords or logs in.
 
-Message bodies and headers are transient local classifier input. SQLite retains
+Message bodies and headers are transient independent destination and sparse-extraction input. SQLite retains
 only the required sender/summary reporting data, the normalized message Date
 header or IMAP INTERNALDATE fallback, technical source identity and processing timestamps. Protect the data directory and backups accordingly. Mail
 content, headers, classifier output, sender, subject, summaries and event fields
@@ -20,29 +20,32 @@ mail-failure count or prevent leave/archive disposition.
 Discord delivery is fail-closed: the report function requires an explicit runner,
 and the CLI requires `report send --deliver`. Tests and review probes that omit
 either gate cannot call the real Hermes sender or advance report state.
-The event-model/calendar subsystem has its own local storage and logging policy;
-only the configured calendar name, event candidates, and minimal nearby records
-from that calendar, without mail provenance,
-cross that boundary.
+Sparse extraction receives the same bounded mail JSON as destination/summary,
+without receiving that pass's output. Later duplicate checking receives only sparse
+title/start/supplied end and minimal nearby title/start/end/all_day rows from the
+configured calendar, without mail provenance. No estimated end can enter duplicate
+checking. Completion sees only index/title/start for timed no_match candidates
+with a null end, without nearby rows. Its closed patch contract cannot replace
+any supplied field. Python materializes only a validated missing-end patch.
 
-The fixed DMR endpoint bypasses HTTP proxies and rejects redirects. There is no
-network model fallback. Event decisions use the same fixed loopback DMR transport and model as mail
-classification, with a separate prompt and strict schema. Calendar and report
-commands use argument lists, shell=False, stdin data, captured output, checked
-exit status, and timeouts. Hermes send delivers rendered report text without an
-LLM and is not used for either classification.
+All four passes use the same fixed loopback DMR transport and model, with
+separate small prompts and strict closed schemas. The client disables proxies,
+rejects redirects, bounds time and response bytes, strictly decodes both HTTP
+envelope and content, and requires finish_reason stop. Temperature is 0 and
+thinking is disabled. There is no hosted fallback. JSON key sets, duplicate-key
+rejection, typed fields, date syntax, cross-field semantics, and exact ordered
+batch coverage (rejecting bool indices) are independently enforced in Python.
+Nearby payloads fail closed over budget rather than truncate evidence.
 
-Classifier and event prompts treat supplied content as untrusted data. Exact
-JSON key sets, duplicate-key rejection, typed fields, date formats, completion
-status and complete event-result coverage limit what model output can trigger.
-Both model operations request their exact outer shape with separate strict JSON
-Schemas, then independently apply conditional and temporal validation. The
-shared client disables proxies and redirects, bounds the response, requires a
-complete response, and strictly decodes both the HTTP envelope and model content.
-The complete event user payload is bounded and rejected rather than truncated.
-The model only semantically authorizes create/existing/skipped decisions. Fixed JXA reads only
-the configured calendar and creates validated events there, then verifies
-title/start/end by readback.
+Destination/summary failures remain fatal/retryable. Extraction, duplicate,
+completion, and Calendar failures are optional and do not block disposition.
+Complete duplicate and completion batches and all materialized results validate,
+with a batch temporal recheck, before the first Calendar write. No model stage
+has write authority. Fixed JXA reads only the configured calendar and creates
+validated events there, then verifies exact title/start/end by readback. Calendar
+and report commands use argument lists, shell=False, stdin data, captured output,
+checked exit status, and timeouts. Hermes sends rendered report text without an LLM.
+
 Calendar search alone normalizes a known equal-date one-day all-day adapter row
 to an exclusive next-day end; create readback is never normalized.
 All untrusted values use stdin JSON, never executable JXA interpolation. No

@@ -1,5 +1,6 @@
 """Fixed Calendar capability: configured-calendar reads and verified creates."""
-from datetime import date, datetime, timedelta, time
+from datetime import date, datetime, timedelta, time, timezone
+from zoneinfo import ZoneInfo
 import json
 import subprocess
 from local_agentic_triage.classifier.core import strict_json
@@ -24,7 +25,7 @@ function run() {
     function minimal(e) {
         const all=e.alldayEvent();
         return {title:e.summary(),start:all?day(e.startDate()):e.startDate().toISOString(),
-                end:all?day(e.endDate()):e.endDate().toISOString(),all_day:all};
+                end:all?day(e.endDate()):e.endDate().toISOString(),all_day:all,location:e.location() || null};
     }
     if (data.operation === 'search') {
         const matches=calendar.events.whose({_and:[{startDate:{_lessThanEquals:parse(data.upper)}},
@@ -34,7 +35,9 @@ function run() {
     }
     if (data.operation !== 'create') throw Error('calendar_operation');
     const e=data.event;
-    const created=app.Event({summary:e.title,startDate:parse(e.start),endDate:parse(e.end),alldayEvent:e.all_day});
+    const properties={summary:e.title,startDate:parse(e.start),endDate:parse(e.end),alldayEvent:e.all_day};
+    if (e.location !== null) properties.location=e.location;
+    const created=app.Event(properties);
     calendar.events.push(created);
     const id=created.uid();
     const readback=calendar.events.whose({uid:id})();
@@ -44,24 +47,18 @@ function run() {
 '''
 
 def canonical(event):
-    from local_agentic_triage.events.core import validate_events
-    validate_events([event])
-    if event['start'] is None or event['date_note'] is not None:
-        raise ValueError('calendar_invalid_event')
+    from local_agentic_triage.events.core import validate_final
+    validate_final(event)
     all_day=len(event['start'])==10
-    if not all_day and event['end'] is None: raise ValueError('calendar_invalid_event')
     start=event['start']; end=event['end']
-    if all_day:
-        end=end or (date.fromisoformat(start)+timedelta(days=1)).isoformat()
-        if end<=start: raise ValueError('calendar_invalid_event')
-    else:
+    if not all_day:
         start=datetime.fromisoformat(start).isoformat()
         end=datetime.fromisoformat(end).isoformat()
-    return {'title':event['title'],'start':start,'end':end,'all_day':all_day}
+    return {'title':event['title'],'start':start,'end':end,'all_day':all_day,'location':event['location']}
 
 def same(actual,expected):
     if not isinstance(actual,dict) or set(actual)!=set(expected): return False
-    if actual['title']!=expected['title'] or actual['all_day'] is not expected['all_day']: return False
+    if actual['title']!=expected['title'] or actual.get('location')!=expected['location'] or actual['all_day'] is not expected['all_day']: return False
     try:
         if expected['all_day']: return actual==expected
         return all(datetime.fromisoformat(actual[k])==datetime.fromisoformat(expected[k]) for k in ('start','end'))
@@ -90,8 +87,9 @@ class Calendar:
         if not isinstance(rows,list) or len(rows)>1000: raise ValueError('calendar_search_invalid')
         normalized=[]
         for row in rows:
-            if not isinstance(row,dict) or set(row)!={'title','start','end','all_day'} or type(row['all_day']) is not bool:
+            if not isinstance(row,dict) or set(row)!={'title','start','end','all_day','location'} or type(row['all_day']) is not bool:
                 raise ValueError('calendar_search_invalid')
+            if row['location']=='': row=row|{'location':None}
             if row['all_day'] is True and row['start']==row['end'] and isinstance(row['start'],str):
                 try:
                     if len(row['start'])==10:
@@ -99,7 +97,7 @@ class Calendar:
                         row=row|{'end':end}
                 except ValueError:
                     pass
-            candidate={'title':row['title'],'start':row['start'],'end':row['end'],'date_note':None}
+            candidate={'title':row['title'],'start':row['start'],'end':row['end'],'date_note':None,'location':row['location']}
             try:
                 valid=same(row,canonical(candidate))
             except (TypeError,ValueError):
@@ -108,13 +106,12 @@ class Calendar:
             normalized.append(row)
         return normalized
     def too_soon(self,event, *, now=None):
-        start_value=event['start']
-        if len(start_value)==10:
-            current=self.clock() if now is None else now.astimezone()
-            return date.fromisoformat(start_value)<=current.date()+timedelta(days=3)
-        start=datetime.fromisoformat(start_value)
-        current=self.clock(start.tzinfo) if now is None else now.astimezone(start.tzinfo)
-        return start<=current+timedelta(days=3)
+        end_value=event['end']
+        current=(self.clock(timezone.utc) if now is None else now).astimezone(timezone.utc)
+        if len(end_value)==10:
+            return date.fromisoformat(end_value)<=current.astimezone(ZoneInfo('Europe/Warsaw')).date()+timedelta(days=3)
+        end=datetime.fromisoformat(end_value)
+        return end<=current+timedelta(hours=72)
     def create(self,event):
         expected=canonical(event)
         if self.too_soon(event): raise ValueError('calendar_too_soon')

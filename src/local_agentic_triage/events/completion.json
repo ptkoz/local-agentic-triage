@@ -1,0 +1,47 @@
+{
+  "type": "json_schema",
+  "json_schema": {
+    "name": "event_completion",
+    "strict": true,
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "title",
+        "start",
+        "end",
+        "date_note",
+        "location"
+      ],
+      "properties": {
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "start": {
+          "type": "string"
+        },
+        "end": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "date_note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "location": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

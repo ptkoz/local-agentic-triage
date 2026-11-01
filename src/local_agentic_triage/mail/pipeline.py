@@ -3,8 +3,8 @@ import json
 from dataclasses import replace
 from local_agentic_triage.mail.mime import parse
 from local_agentic_triage.mail.imap import uid_value
-from local_agentic_triage.classifier.core import classify, validate, bound_mail
-from local_agentic_triage.events.core import process, parse_results
+from local_agentic_triage.classifier.core import classify, validate_disposition, bound_mail
+from local_agentic_triage.events.core import process, parse_results, extract
 from local_agentic_triage.common.diagnostics import error_code, error_suffix
 from local_agentic_triage.reporting.report import record_message
 
@@ -26,7 +26,7 @@ def diagnose(mailbox,config,uid,classifier=classify,expected_validity=None):
         mail,truncated=bound_mail(mail)
         if truncated:
             log.info('mail_content_truncated uid=%s fields=%s',uid,','.join(truncated))
-        validate(classifier(mail))
+        validate_disposition(classifier(mail))
         log.info('mail_diagnosis_completed uid=%s uidvalidity=%s stage=classify',uid,validity)
         return 0
     except Exception as exc:
@@ -34,7 +34,8 @@ def diagnose(mailbox,config,uid,classifier=classify,expected_validity=None):
                   error_code(exc),error_suffix(exc))
         return 1
 
-def poll(mailbox,store,config,classifier=classify,event_processor=process):
+def poll(mailbox,store,config,classifier=classify,event_processor=process, *, extractor=None):
+    extractor=extract if extractor is None else extractor
     failures=0; completed=0
     log.info('mail_poll_started')
     try: candidates=mailbox.candidates()
@@ -90,7 +91,7 @@ def poll(mailbox,store,config,classifier=classify,event_processor=process):
             if truncated:
                 log.info('mail_content_truncated uid=%s fields=%s',uid,','.join(truncated))
             log.info('mail_item_action item=%d uid=%s stage=classify',index,uid)
-            result=validate(classifier(mail))
+            result=validate_disposition(classifier(mail))
 
             if result['destination']=='archive':
                 stage='report_row'
@@ -99,8 +100,9 @@ def poll(mailbox,store,config,classifier=classify,event_processor=process):
 
             log.info('mail_item_action item=%d uid=%s stage=events',index,uid)
             try:
-                event_result=event_processor(result['events'],config)
-                event_result=parse_results(json.dumps(event_result),result['events'],processed=True)
+                extracted=extractor(mail)
+                event_result=event_processor(extracted,config)
+                event_result=parse_results(json.dumps(event_result),extracted,processed=True)
                 for entry in event_result['results']:
                     log.info('mail_event_result uid=%s index=%d outcome=%s reason=%s',uid,entry['index'],entry['outcome'],entry['reason'])
             except Exception as exc:

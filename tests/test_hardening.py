@@ -15,7 +15,7 @@ class HardeningTests(unittest.TestCase):
                 validate(base|{'events':[{'title':'X','start':start,'end':end,'date_note':None}]})
     def test_dmr_bypasses_proxies_and_redirects_and_passes_metadata(self):
         response=Mock(); response.__enter__=Mock(return_value=response); response.__exit__=Mock(return_value=False)
-        response.read.return_value=json.dumps({'choices':[{'finish_reason':'stop','message':{'content':'{"destination":"leave","summary":null,"events":[]}'}}]}).encode()
+        response.read.return_value=json.dumps({'choices':[{'finish_reason':'stop','message':{'content':'{"destination":"leave","summary":null}'}}]}).encode()
         opener=Mock(); opener.open.return_value=response
         with patch('urllib.request.build_opener',return_value=opener) as build,patch('urllib.request.urlopen',side_effect=AssertionError('unsafe open')):
             mail=parse(b'From: sender\nSubject: title\nDate: Wed, 01 Jan 2025 12:00:00 +0100\n\nbody',1000)

@@ -1,0 +1,24 @@
+{
+  "type": "json_schema",
+  "json_schema": {
+    "name": "event_duplicates",
+    "strict": true,
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "outcome"
+      ],
+      "properties": {
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "existing",
+            "possible_duplicate",
+            "create"
+          ]
+        }
+      }
+    }
+  }
+}
