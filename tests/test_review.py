@@ -150,7 +150,11 @@ class ReviewTests(unittest.TestCase):
         for wrong in (expected|{'title':'other'},expected|{'start':'2099-12-02'},expected|{'end':'2099-12-03'},expected|{'calendar':'Other'},{}):
             with patch.object(Calendar,'call',return_value=wrong),self.assertRaisesRegex(ValueError,'calendar_verification_failed'):
                 Calendar(make_config()).create(EVENT)
-        for event in (EVENT|{'start':None},EVENT|{'date_note':'uncertain'},EVENT|{'start':'2099-12-01T10:00:00Z'},EVENT|{'start':'2000-01-01','end':'2000-01-02'}):
+        noted=EVENT|{'date_note':'Synthetic retained note'}
+        with patch.object(Calendar,'call',return_value=expected) as call:
+            self.assertEqual(Calendar(make_config()).create(noted),expected)
+        call.assert_called_once_with({'operation':'create','event':expected})
+        for event in (EVENT|{'start':None},EVENT|{'start':'2099-12-01T10:00:00Z'},EVENT|{'start':'2000-01-01','end':'2000-01-02'}):
             with patch.object(Calendar,'call') as call,self.assertRaises(ValueError):
                 Calendar(make_config()).create(event)
             call.assert_not_called()
