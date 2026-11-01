@@ -9,4 +9,4 @@ provide a concise factual Polish summary: subject, status, amount, or deadline.
 Always write every archive summary in Polish regardless of the input mail language.
 Translate factual content into Polish rather than copying foreign-language prose.
 Do not justify classification, evaluate, advise, or instruct the user. Describe
-a sender's request as a fact rather than issuing a command. Do not extract events.
+a sender's request as a fact rather than issuing a command.
