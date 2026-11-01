@@ -43,8 +43,37 @@ class ContentTests(unittest.TestCase):
             self.assertEqual(call.call_args.kwargs['timeout'],300)
             self.assertNotIn('enable_thinking',data)
             self.assertEqual(data['chat_template_kwargs'],{'enable_thinking':False})
-            self.assertEqual(set(data['response_format']['json_schema']['schema']['properties']),{'destination','summary'})
+            self.assertEqual(set(data['response_format']['json_schema']['schema']['properties']),{'summary'})
             self.assertIn('sent_date',data['messages'][1]['content'])
+
+    def test_classify_summarizes_before_destination_with_separate_source(self):
+        import local_agentic_triage.classifier.core as core
+        mail=parse(b'Date: Wed, 01 Jan 2025 12:00:00 +0100\nSubject: Synthetic\n\nbody',100)
+        with patch.object(core,'chat_completion',side_effect=[
+                {'summary':'Syntetyczne podsumowanie.'},{'destination':'leave'}]) as chat:
+            self.assertEqual(classify(mail),{'destination':'leave','summary':None})
+        self.assertEqual(chat.call_count,2)
+        self.assertIs(chat.call_args_list[0].args[1],core.SUMMARY_SCHEMA)
+        self.assertIs(chat.call_args_list[1].args[1],core.CLASSIFICATION_SCHEMA)
+        summary_payload=json.loads(chat.call_args_list[0].args[0][1]['content'])
+        destination_payload=json.loads(chat.call_args_list[1].args[0][1]['content'])
+        self.assertEqual(destination_payload,{
+            'summary':'Syntetyczne podsumowanie.','mail':summary_payload})
+
+        with patch.object(core,'chat_completion',side_effect=[
+                {'summary':'Syntetyczne podsumowanie.'},{'destination':'archive'}]) as chat:
+            self.assertEqual(classify(mail),{
+                'destination':'archive','summary':'Syntetyczne podsumowanie.'})
+        self.assertEqual(chat.call_count,2)
+        self.assertEqual(chat.call_args_list[0].args[0][0]['content'],core.summary_prompt())
+        self.assertEqual(chat.call_args_list[1].args[0][0]['content'],core.disposition_prompt())
+
+    def test_summary_validation_enforces_rendering_bounds(self):
+        import local_agentic_triage.classifier.core as core
+        self.assertEqual(core.validate_summary({'summary':'Krótki opis.'}),{'summary':'Krótki opis.'})
+        for summary in ('','   ','x'*181,'Pierwsza linia.\nDruga linia.'):
+            with self.subTest(summary=repr(summary)),self.assertRaisesRegex(ValueError,'archive summary'):
+                core.validate_summary({'summary':summary})
 
     def test_classifier_distinguishes_envelope_and_content_json(self):
         class Response:
