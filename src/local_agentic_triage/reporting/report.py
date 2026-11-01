@@ -92,13 +92,13 @@ def send(store,config,at=None,*,runner=None):
     start,stamp=store.report_window(end.isoformat())
     rows=store.pending(stamp)
     messages=[record_message(row,config.discord_limit) for row in rows]
-    summary=header(config.discord_user_id,start,stamp,store.moved_count(start,stamp))
-    if len(summary)>config.discord_limit: raise ValueError('report summary too long')
     log.info('report_started rows=%d',len(rows))
     for index,(row,text) in enumerate(zip(rows,messages),1):
         log.info('report_record_sending record=%d total=%d',index,len(rows))
         deliver(runner,config,text,'record',index)
         store.reported([row['source_key']])
         log.info('report_record_completed record=%d',index)
+    summary=header(config.discord_user_id,start,stamp,store.moved_count(start,stamp))
+    if len(summary)>config.discord_limit: raise ValueError('report summary too long')
     deliver(runner,config,summary,'summary')
     store.complete_report_window(stamp)

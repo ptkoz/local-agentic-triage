@@ -253,8 +253,9 @@ first sends pending rows whose ready_at is at or before the frozen end boundary,
 acknowledging each successful delivery immediately with its actual delivery time.
 There is no introduction. After all pending rows succeed, exactly one final
 summary mentions the configured user and describes the Europe/Warsaw interval,
-including a zero count. Its count includes all rows with ready_at in (start, end],
-even those already delivered immediately. For example:
+including a zero count. Its count includes delivered rows with ready_at in
+(start, end], including those delivered immediately, and excludes rows whose
+delivery has not succeeded. For example:
 `<@USER_ID>, powyżej znajduje się informacja o **9 wiadomościach** przeniesionych do Archiwum między 1 lis 08:00 a 1 lis 18:00:`.
 The singular uses `1 wiadomości` and `przeniesionej`.
 

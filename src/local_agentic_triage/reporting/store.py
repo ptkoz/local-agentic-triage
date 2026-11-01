@@ -71,7 +71,7 @@ class Store:
         meta=self.db.execute('SELECT last_end_at FROM report_meta WHERE id=1').fetchone()
         return meta[0] if meta else None
     def moved_count(self,start,end):
-        return self.db.execute('SELECT COUNT(*) FROM reports WHERE ready_at>? AND ready_at<=?',(start,end)).fetchone()[0]
+        return self.db.execute('SELECT COUNT(*) FROM reports WHERE ready_at>? AND ready_at<=? AND reported_at IS NOT NULL',(start,end)).fetchone()[0]
     def current_report_window(self):
         row=self.db.execute('SELECT start_at,end_at FROM report_state WHERE id=1').fetchone()
         return (row[0],row[1]) if row else None

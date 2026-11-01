@@ -66,6 +66,20 @@ class ReportTests(unittest.TestCase):
         self.assertEqual([call.args for call in store.reported.call_args_list],[(['a'],),(['b'],)])
         store.complete_report_window.assert_called_once_with('2026-11-10T17:00:00+00:00')
 
+    def test_successful_pending_rows_are_counted_after_delivery(self):
+        with tempfile.TemporaryDirectory() as d:
+            store=Store(Path(d)/'db')
+            start='2026-11-01T07:00:00+00:00'; end='2026-11-01T17:00:00+00:00'
+            store.complete_report_window(start)
+            for key in ('a','b'):
+                store.prepare(key,f'{key}@example.com',f'{key} summary',sent_at=start)
+                store.db.execute('UPDATE reports SET ready_at=? WHERE source_key=?',(end,key))
+            store.db.commit()
+            runner=Mock(return_value=subprocess.CompletedProcess([],0,'',''))
+            send(store,make_config(),datetime.fromisoformat(end),runner=runner)
+            self.assertIn('**2 wiadomościach**',runner.call_args_list[-1].kwargs['input'])
+            store.close()
+
     def test_partial_failure_acks_only_sent_record_and_retry_uses_remaining(self):
         with tempfile.TemporaryDirectory() as d:
             store=Store(Path(d)/'db')

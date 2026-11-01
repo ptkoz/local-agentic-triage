@@ -34,7 +34,7 @@ class StoreTests(unittest.TestCase):
             self.assertIn('sent_at',[r[1] for r in s.db.execute('pragma table_info(reports)')])
             s.close()
 
-    def test_window_count_uses_ready_interval_including_delivered_rows(self):
+    def test_window_count_uses_ready_interval_and_excludes_undelivered_rows(self):
         with tempfile.TemporaryDirectory() as d:
             s=Store(Path(d)/'db')
             start='2026-11-01T07:00:00+00:00'; end='2026-11-01T17:00:00+00:00'
@@ -42,6 +42,10 @@ class StoreTests(unittest.TestCase):
             for key,ready in (('start',start),('inside','2026-11-01T08:00:00+00:00'),('end',end),('later','2026-11-01T18:00:00+00:00')):
                 s.prepare(key,'sender','summary',sent_at=start)
                 s.db.execute('UPDATE reports SET ready_at=?,reported_at=? WHERE source_key=?',(ready,ready,key))
+            s.prepare('undelivered','sender','summary',sent_at=start)
+            s.db.execute('UPDATE reports SET ready_at=? WHERE source_key=?',('2026-11-01T09:00:00+00:00','undelivered'))
+            s.prepare('old-retry','sender','summary',sent_at=start)
+            s.db.execute('UPDATE reports SET ready_at=?,reported_at=? WHERE source_key=?',('2026-11-01T06:00:00+00:00','2026-11-01T10:00:00+00:00','old-retry'))
             s.db.commit()
             self.assertEqual(s.report_window(end),(start,end))
             self.assertEqual(s.moved_count(start,end),2)
