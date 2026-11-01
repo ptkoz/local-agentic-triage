@@ -16,6 +16,15 @@ from test_events import decision_response, prompt as event_prompt
 
 EVENT={'title':'\"; doShellScript("evil"); //','start':'2099-12-01','end':None,'date_note':None}
 class ReviewTests(unittest.TestCase):
+    def setUp(self):
+        patcher=patch('local_agentic_triage.mail.pipeline.extract',return_value=[])
+        self.extractor=patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def disposition(self, *, destination,summary,extracted_events):
+        self.extractor.return_value=extracted_events
+        return {'destination':destination,'summary':summary}
+
     def test_toolless_decision_and_adapter_data(self):
         from local_agentic_triage.events.calendar import Calendar, SCRIPT
         def run(args,**kw):
@@ -27,7 +36,7 @@ class ReviewTests(unittest.TestCase):
             data=json.loads(kw['input']); self.assertEqual(data['calendar'],'Test Calendar')
             out=[] if data['operation']=='search' else {'title':EVENT['title'],'start':'2099-12-01','end':'2099-12-02','all_day':True}
             return subprocess.CompletedProcess(args,0,json.dumps(out),'')
-        decision={'status':'ok','results':[{'index':0,'outcome':'create','reason':None,'estimated_end':None}]}
+        decision={'results':[{'index':0,'outcome':'no_match'}]}
         with patch('subprocess.run',side_effect=run) as runner, \
              patch('urllib.request.OpenerDirector.open',return_value=decision_response(decision)) as opened:
             result=process([EVENT],make_config())
@@ -41,7 +50,7 @@ class ReviewTests(unittest.TestCase):
         self.assertNotIn(EVENT['title'],body['messages'][0]['content'])
         user=json.loads(body['messages'][1]['content'])
         self.assertEqual(user['calendar'],'Test Calendar')
-        self.assertEqual(user['events'],[EVENT])
+        self.assertEqual(user['events'],[{k:EVENT[k] for k in ('title','start','end')}])
         self.assertEqual(user['nearby'],[[]])
         self.assertEqual(opened.call_args.kwargs['timeout'],120)
 
@@ -61,7 +70,7 @@ class ReviewTests(unittest.TestCase):
             present={'9'}
             box.all_uids.side_effect=lambda:set(present)
             box.archive.side_effect=lambda uid: present.remove(uid)
-            classifier=Mock(return_value={'destination':'archive','summary':'synthetic','events':[]}); events=Mock(return_value={'status':'ok','results':[]})
+            classifier=Mock(return_value=self.disposition(destination='archive',summary='synthetic',extracted_events=[])); events=Mock(return_value={'status':'ok','results':[]})
             with patch.object(store,'ready',side_effect=RuntimeError('private')):
                 with self.assertLogs('local_agentic_triage',level='ERROR'):
                     self.assertEqual(poll(box,store,make_config(),classifier,events),1)
@@ -118,7 +127,7 @@ class ReviewTests(unittest.TestCase):
             box.source_key.return_value=key
             box.raw.return_value=(b'Date: Sat, 31 Oct 2026 01:27:00 +0100\n'
                                   b'From: Synthetic Sender <sender@example.invalid>\n\nSynthetic body')
-            classifier=Mock(return_value={'destination':'archive','summary':'Synthetic summary','events':[EVENT]})
+            classifier=Mock(return_value=self.disposition(destination='archive',summary='Synthetic summary',extracted_events=[EVENT]))
             event_processor=Mock(side_effect=RuntimeError('PRIVATE adapter output'))
             transitions=[]; prepare=store.prepare; ready=store.ready
             store.prepare=Mock(side_effect=lambda *args,**kwargs:(transitions.append('prepared'),prepare(*args,**kwargs))[1])
@@ -217,9 +226,9 @@ class ReviewTests(unittest.TestCase):
 
     def test_semantic_outcomes_preserved_and_created_cannot_be_claimed(self):
         from local_agentic_triage.events.calendar import Calendar
-        from local_agentic_triage.events.core import parse_results
+        from local_agentic_triage.events.core import duplicate_results
         candidates=[EVENT,EVENT|{'title':'Different title','start':'2099-12-02'},EVENT|{'title':'Ambiguous'}]
-        decisions={'status':'ok','results':[{'index':0,'outcome':'create','reason':None,'estimated_end':None},{'index':1,'outcome':'existing','reason':None,'estimated_end':None},{'index':2,'outcome':'skipped','reason':'possible_duplicate','estimated_end':None}]}
+        decisions={'results':[{'index':0,'outcome':'no_match'},{'index':1,'outcome':'existing'},{'index':2,'outcome':'possible_duplicate'}]}
         nearby={'title':EVENT['title'],'start':'2099-12-01','end':'2099-12-02','all_day':True}
         with patch.object(Calendar,'nearby',return_value=[nearby]),patch.object(Calendar,'create') as create, \
              patch('subprocess.run',side_effect=AssertionError('decision subprocess')) as run, \
@@ -231,4 +240,4 @@ class ReviewTests(unittest.TestCase):
             self.assertEqual(data['nearby'],[[nearby]]*3)
             self.assertEqual([r['outcome'] for r in final['results']],['created','existing','skipped'])
         decisions['results'][0]['outcome']='created'
-        with self.assertRaises(ValueError): parse_results(json.dumps(decisions),candidates,decisions=True)
+        with self.assertRaises(ValueError): duplicate_results(decisions,candidates)

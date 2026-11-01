@@ -68,7 +68,7 @@ the installed application or restart its LaunchAgents.
 `mail diagnose`:
 
 - selects only the configured Inbox and validates its current `UIDVALIDITY`;
-- verifies that the UID still exists, reads that message without setting flags, bounds the model payload, and calls only the fixed loopback classifier;
+- verifies that the UID still exists, reads that message without setting flags, bounds the model payload, and calls only the fixed loopback destination/summary pass;
 - does not open SQLite, acquire production locks, run Calendar/event decisions, set `\Flagged`/`Seen`, move mail, or send a report;
 - logs only UID, UIDVALIDITY, stage, truncation field names, and a controlled error code;
 - returns 0 if classification currently succeeds and 1 if the replay fails.
@@ -90,24 +90,29 @@ the historical failure. State this limitation explicitly.
 The shared local-model client performs two strict JSON decodes. Current builds distinguish them:
 
 - `model_envelope_json_invalid`: the HTTP body returned by the loopback Docker Model Runner endpoint was not strict JSON. This is a transport/runtime response failure before reading a model message.
-- `model_content_json_invalid`: `choices[0].message.content` was not strict JSON. The HTTP envelope was valid, but the model returned malformed classification JSON.
+- `model_content_json_invalid`: `choices[0].message.content` was not strict JSON. The HTTP envelope was valid, but the model returned malformed model JSON.
 
 Both decoders also reject duplicate keys, non-finite constants, invalid encoding, and wrong input types. Schema errors after successful decoding have their own exception-derived code and are not JSON decode failures.
-Mail classification and event decisions use distinct strict JSON Schemas with
-the same fixed loopback endpoint and model. The mail schema covers destination,
-summary and complete event objects. The event schema covers status/results and
-index/outcome/reason/estimated_end. Deterministic validators still enforce
-leave/archive conditions, exact ordered coverage, reason sets, date syntax,
-range compatibility, estimate authorization and temporal ordering. The event
-user payload is rejected before the model when its conservative context budget
-would be exceeded; nearby records are never truncated because that could hide a
-duplicate.
+Four distinct prompts and closed strict JSON Schemas use the same fixed loopback
+endpoint and model. Destination/summary returns only those fields; sparse
+extraction independently receives bounded mail JSON and returns title/start/end/
+date_note events. After deterministic eligibility gates and nearby lookup,
+duplicate checking sees title/start/supplied end and nearby title/start/end/all_day,
+never estimated data or date_note. It returns existing/possible_duplicate/no_match
+only. Timed no_match candidates lacking end enter completion with index/title/start
+only. Completion returns a missing-end patch or skipped/missing_end; replacement
+fields are rejected. Complete timed and all-day candidates bypass completion.
+Python validates exact ordered coverage, rejects bool indices, enforces date/range
+semantics, validates both complete batches before writes, and rechecks temporal
+eligibility for all creations. Event payloads are rejected before the model when
+their conservative context budgets would be exceeded; nearby rows are never
+truncated. See architecture.md for the four contracts.
 
 An event exception or invalid canonical event result produces one
 `mail_event_failed uid=... error=...` line, optionally with a bounded numeric
 `returncode`. This is optional-enrichment telemetry: it does not produce a
 second `mail_item_failed` line, make the poll fail, or prevent leave/archive.
-Classification, read, report-row, and disposition errors remain fatal and
+Destination/summary, read, report-row, and disposition errors remain fatal and
 retryable.
 
 Older builds logged both decoder failures as `json_decode_error`. That legacy code alone is ambiguous: it proves strict JSON decoding failed but not which decoder failed. Use the read-only diagnostic command on the current build. If replay succeeds, report that the historical decoder location cannot be proven from legacy logs; do not infer it or claim a root cause from private output.

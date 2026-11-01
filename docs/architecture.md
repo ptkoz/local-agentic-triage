@@ -1,8 +1,8 @@
 # Architecture and failure semantics
 
-`common` owns config and locking; `classifier` owns the exact packaged prompt,
-strict JSON validation and the fixed loopback DMR client; `events` owns the
-event decision contract; `mail` owns Himalaya, MIME and poll orchestration;
+`common` owns config and locking; `classifier` owns destination/summary validation
+and the fixed loopback DMR client; `events` owns sparse extraction, duplicate
+checking, and missing-end completion; `mail` owns Himalaya, MIME and poll orchestration;
 `reporting` owns SQLite, rendering and delivery. Future SMS/log sources should
 be separate explicit modules. No plugin framework or dependency injection
 framework is needed; constructors/functions accept simple fakes in tests.
@@ -40,37 +40,76 @@ this simple Himalaya-only design; no direct IMAP/authentication path is added.
 MIME processing
 prefers nonattachment text/plain, falls back deterministically to HTML text,
 ignores script/style content, and skips attachment subtrees. Subject, sender,
-sent date and body go only to the fixed local classifier. The sent date is a
+sent date and body go independently to the destination and extraction passes. The sent date is a
 separate JSON field, allowing relative dates to resolve against the message.
-Malformed MIME, oversized input, and invalid/truncated classification cause no
-disposition. Event processing is optional enrichment: its failures are logged
+Malformed MIME, oversized input, and invalid/truncated destination classification
+cause no disposition. Event processing is optional enrichment: its failures are logged
 and do not block mail disposition.
 
-The classifier prompt is copied exactly from the approved document and pinned
-by SHA-256 in tests. Mail classification and semantic event decisions use the
-same model, exactly docker.io/ai/qwen35-mail:16k at
-http://127.0.0.1:12434/engines/v1/chat/completions. Proxies and redirects are
-disabled. Temperature is 0, `chat_template_kwargs.enable_thinking` is false,
-and output has a 2048-token budget. Each operation has a separate packaged
-prompt and closed strict JSON Schema. Deterministic validation applies the
-conditional and temporal rules that JSON Schema does not express. No hosted
-fallback exists.
+## Four local-model passes
+
+All four passes use exactly docker.io/ai/qwen35-mail:16k at
+http://127.0.0.1:12434/engines/v1/chat/completions, temperature 0,
+`chat_template_kwargs.enable_thinking=false`, and a 2048-token output budget.
+The shared transport disables proxies, rejects redirects, limits response bytes,
+uses a timeout, strictly decodes envelope and content, rejects duplicate keys and
+non-finite constants, and requires finish_reason stop. Each pass has a separate
+small packaged operational prompt and closed strict JSON Schema. Python validates
+all conditional, temporal, and coverage rules independently. No model has tools
+or write authority. The byte-pinned classifier/prompt.md is a compatibility
+artifact; runtime uses classifier/destination.md.
+
+1. Destination/summary receives bounded mail JSON and returns destination and
+   summary only. Leave requires null summary; archive requires a factual Polish
+   summary regardless of input language. Failure is fatal/retryable because disposition and reporting depend
+   on it.
+2. Sparse extraction independently receives the same bounded mail JSON, never
+   destination output. It returns events containing exactly title/start/end/date_note.
+   Missing fields are null; confirmed events with uncertain date alternatives
+   remain candidates with those alternatives in a note and null start/end.
+   Timed timestamps must be timezone-aware ISO, defaulting to Europe/Warsaw
+   for resolved local date/time without a supplied zone; explicit zones take
+   precedence. Exact supplied date components and years are preserved; explicit
+   unambiguous relative dates resolve from sent_date. Single-date all-day events
+   have a date start and null end unless an explicit range/end is supplied. Supplied
+   ranges must have compatible types and end strictly after start. Malformed
+   output is rejected rather than repaired. This and every later event failure
+   are optional enrichment failures and cannot block leave/archive.
+3. After deterministic eligibility gates and Calendar nearby lookup, duplicate
+   checking receives only title/start/supplied end, plus nearby title/start/end/all_day
+   rows and the configured calendar name. It never receives date_note or estimated
+   values. Null end means unknown, never difference; offsets compare as absolute
+   instants. Timing alone is insufficient, and unrelated concurrent events are
+   no_match. Each events[i] compares to nearby[i], an aligned array of
+   rows, and earlier candidates events[0:i], never later candidates; results cover candidates in order, never nearby rows. Clear shared
+   specific identity at the same instant is existing; ambiguous shared identity or modest
+   time differences are possible_duplicate. Results contain index/outcome only:
+   existing, possible_duplicate, or no_match. After full duplicate-batch validation,
+   Python suppresses later candidates with exactly equal sparse title/start/end
+   before completion; semantic title variants remain the model’s responsibility.
+   Python maps these to existing,
+   skipped/possible_duplicate, or eligibility for creation/completion.
+4. Only timed no_match candidates with null end enter completion. Its input is
+   index/title/start only, without nearby rows. Each output contains index/outcome/
+   reason/estimated_end only. Complete requires null reason and an aware end
+   strictly after start; skipped requires missing_end and null estimate. No fixed
+   maximum duration applies. This patch can fill only a previously null end;
+   it cannot replace title, start, date_note, or supplied end. Complete supplied
+   timed events and all-day events bypass completion.
+
+Duplicate and completion results require exact ordered batch coverage and integer
+indices (bool is rejected). The entire duplicate batch and required completion
+batch validate before patches are materialized. Python then canonicalizes every
+creation, validates all final results, and reapplies the temporal guard to the
+whole creation batch before the first write. Each actual create also repeats the
+guard and verifies readback. A later write/readback failure can leave an earlier
+verified creation in place; retries use nearby duplicate checking.
+
+Event-model user payloads have conservative context budgets and fail closed
+without truncation: omitting nearby rows could hide duplicates. All input strings
+are untrusted data in separate user-message JSON, never prompt instructions.
 
 ## Calendar and disposition
-
-Only the configured calendar name, event candidates, and minimal nearby events
-from that calendar pass to the fixed loopback model as compact user-message
-JSON. Both arrays, including all titles, are untrusted data; the packaged event
-prompt is the separate system message. The model only semantically checks and
-authorizes: different titles and slightly different dates
-or times can identify the same real-world event. Clear matches return existing;
-ambiguous matches return skipped/possible_duplicate. Only create authorizes a write.
-The event request uses its own closed strict JSON Schema for status/results and
-index/outcome/reason/estimated_end. The response has the same strict envelope,
-content, duplicate-key, non-finite-value, size and completion checks as mail
-classification. The complete event user payload has a conservative context
-budget and fails closed without truncation, because truncating nearby rows could
-hide a duplicate.
 
 `events/calendar.py` owns a fixed JXA program invoked by `/usr/bin/osascript` with
 shell=False and a timeout. Event values travel solely as JSON on stdin, never
@@ -91,29 +130,16 @@ validation, create, or readback failure is contained as an event-enrichment
 failure and does not block mail disposition. Search failure prevents even
 invoking the model.
 
-The classifier may return incomplete event candidates.
-Before any Calendar search or event-model request starts, fixed code gates every
-classified event. A timed start is eligible only when strictly more than 72 hours
-away in that event's timezone; an all-day start is eligible only when its date is
-later than local today plus three days. Missing starts become skipped/missing_date,
-and known ineligible starts become skipped/too_soon. When none are eligible,
-Calendar search and the event model are not invoked. Mixed batches expose only eligible
-events and their corresponding nearby rows to that model, then map its results back
-to the original indices while retaining local skips.
-
-Event decision results contain exactly index/outcome/reason/estimated_end, one per candidate, under
-status/results. A create decision for a timed candidate with a null end must estimate
-that end from the title/event type without a fixed duration cap; deterministic validation
-requires an aware ISO timestamp strictly after start. Other estimates are rejected.
-The local model owns the completion and create decision for eligible events. Fixed code
-only validates that narrow decision, performs the exact configured-Calendar write
-and readback, and repeats the date guard immediately before create as defense in depth.
-create/existing require null reason; skipped/error use fixed
-reason sets. Claimed created decisions, extra keys, duplicate indices and
-inconsistent status are rejected. The final internal exact result retains each
-index/outcome/reason and replaces create with created only after verified readback. Titles
-are bounded to 200 characters. Semantic matching remains the local model's responsibility;
-Calendar effects are structurally constrained by deterministic code.
+Before Calendar or later model stages, fixed Python gates extracted events.
+Unresolved date notes become skipped/uncertain_date; missing starts become
+skipped/missing_date. Timed starts must be strictly more than now+72 hours;
+all-day dates must be strictly later than local today+3 days. Other starts become
+skipped/too_soon. Only eligible candidates reach nearby lookup and duplicate
+checking; results map back to original indices alongside deterministic skips.
+Titles are nonempty and bounded to 200 characters. The final internal report
+contains index/outcome/reason, with created returned only after verified writes.
+Semantic matching remains the local model's responsibility; Calendar effects
+remain structurally constrained by deterministic code.
 
 For leave, event processing is followed, whether successful or not, by
 `himalaya imap store -m <inbox> --flag \Flagged -- UID`, without changing Seen

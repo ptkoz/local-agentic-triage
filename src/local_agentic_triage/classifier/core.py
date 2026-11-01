@@ -19,20 +19,11 @@ CLASSIFICATION_SCHEMA={
         'name':'mail_classification','strict':True,
         'schema':{
             'type':'object','additionalProperties':False,
-            'required':['destination','summary','events'],
+            'required':['destination','summary'],
             'properties':{
                 'destination':{'type':'string','enum':['leave','archive']},
                 'summary':{'type':['string','null']},
-                'events':{'type':'array','items':{
-                    'type':'object','additionalProperties':False,
-                    'required':['title','start','end','date_note'],
-                    'properties':{
-                        'title':{'type':'string'},
-                        'start':{'type':['string','null']},
-                        'end':{'type':['string','null']},
-                        'date_note':{'type':['string','null']},
-                    },
-                }},
+
             },
         },
     },
@@ -134,8 +125,17 @@ def chat_completion(messages,response_format):
     except (TypeError,ValueError,UnicodeError):
         raise ModelContentJsonInvalid from None
 
+def disposition_prompt():
+    return files(__package__).joinpath('destination.md').read_text(encoding='utf-8')
+
+def validate_disposition(obj):
+    if not isinstance(obj,dict) or set(obj)!={'destination','summary'}:
+        raise ValueError('classification keys')
+    validate(obj|{'events':[]})
+    return obj
+
 def classify(mail):
-    return validate(chat_completion([
-        {'role':'system','content':prompt()},
+    return validate_disposition(chat_completion([
+        {'role':'system','content':disposition_prompt()},
         {'role':'user','content':json.dumps(mail_payload(mail),ensure_ascii=False)},
     ],CLASSIFICATION_SCHEMA))

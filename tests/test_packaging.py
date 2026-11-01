@@ -20,7 +20,8 @@ class PackagingTests(unittest.TestCase):
             self.assertEqual(result.returncode,0,result.stderr)
             with zipfile.ZipFile(archive) as z:
                 self.assertIn('local_agentic_triage/classifier/prompt.md',z.namelist())
-                self.assertIn('local_agentic_triage/events/prompt.md',z.namelist())
+                for prompt in ('classifier/destination.md','events/extraction.md','events/duplicate.md','events/completion.md'):
+                    self.assertIn('local_agentic_triage/'+prompt,z.namelist())
                 self.assertFalse(any('__pycache__' in n for n in z.namelist()))
             result=subprocess.run([sys.executable,str(archive),'--help'],capture_output=True,text=True)
             self.assertEqual(result.returncode,0,result.stderr)
