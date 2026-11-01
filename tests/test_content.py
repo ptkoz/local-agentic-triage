@@ -33,14 +33,14 @@ class ContentTests(unittest.TestCase):
         class Response:
             def __enter__(self): return self
             def __exit__(self,*a): pass
-            def read(self,n): return json.dumps({'choices':[{'finish_reason':'length','message':{'content':'{}'}}]}).encode()
+            def read(self,n=None): return json.dumps({'choices':[{'finish_reason':'length','message':{'content':'{}'}}]}).encode()
         with patch('urllib.request.OpenerDirector.open',return_value=Response()) as call:
             with self.assertRaises(ValueError): classify(parse(b'Date: today\n\nbody',100))
             req=call.call_args.args[0]; data=json.loads(req.data)
             self.assertEqual(req.full_url,'http://127.0.0.1:12434/engines/v1/chat/completions')
             self.assertEqual(data['model'],'docker.io/ai/qwen35-mail:16k')
             self.assertEqual(data['max_tokens'],2048)
-            self.assertEqual(call.call_args.kwargs['timeout'],120)
+            self.assertEqual(call.call_args.kwargs['timeout'],300)
             self.assertNotIn('enable_thinking',data)
             self.assertEqual(data['chat_template_kwargs'],{'enable_thinking':False})
             self.assertEqual(set(data['response_format']['json_schema']['schema']['properties']),{'destination','summary'})
@@ -51,7 +51,7 @@ class ContentTests(unittest.TestCase):
             def __init__(self,payload): self.payload=payload
             def __enter__(self): return self
             def __exit__(self,*a): pass
-            def read(self,n): return self.payload
+            def read(self,n=None): return self.payload
         mail=parse(b'Date: Wed, 01 Jan 2025 12:00:00 +0100\n\nbody',100)
         with patch('urllib.request.OpenerDirector.open',return_value=Response(b'not json')):
             with self.assertRaises(ModelEnvelopeJsonInvalid): classify(mail)

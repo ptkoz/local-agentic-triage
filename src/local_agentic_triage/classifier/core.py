@@ -9,8 +9,7 @@ ENDPOINT='http://127.0.0.1:12434/engines/v1/chat/completions'
 MODEL='docker.io/ai/qwen35-mail:16k'
 CONTEXT_TOKENS=16384
 MAX_TOKENS=2048
-TIMEOUT=120
-MAX_RESPONSE_BYTES=1000000
+TIMEOUT=300
 MAIL_FIELD_BUDGETS={'sent_date':256,'sender':1024,'subject':2048,'body':6400}
 TRUNCATION='[content truncated]'
 def response_schema(package,name):
@@ -92,10 +91,9 @@ def chat_completion(messages,response_format):
     # Disable environment proxies; only this fixed loopback endpoint is permitted.
     opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect())
     with opener.open(request,timeout=TIMEOUT) as response:
-        raw=response.read(MAX_RESPONSE_BYTES+1)
-    if len(raw)>MAX_RESPONSE_BYTES: raise ValueError('model size limit')
+        raw=response.read()
     try:
-        envelope=strict_json(raw)
+        envelope=strict_json(raw.decode('utf-8') if isinstance(raw,bytes) else raw)
     except (TypeError,ValueError,UnicodeError):
         raise ModelEnvelopeJsonInvalid from None
     try:

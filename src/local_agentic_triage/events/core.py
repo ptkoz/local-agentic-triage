@@ -1,13 +1,13 @@
 from importlib.resources import files
-from datetime import datetime, timezone
+from datetime import datetime
 import json
-from local_agentic_triage.classifier.core import CONTEXT_TOKENS, MAX_TOKENS, chat_completion, strict_json, timestamp, validate, mail_payload, response_schema
+from local_agentic_triage.classifier.core import CONTEXT_TOKENS, MAX_TOKENS, chat_completion, strict_json, timestamp, mail_payload, response_schema
 
 def prompt(): return files(__package__).joinpath('duplicate.md').read_text(encoding='utf-8')
 
 def completion_prompt(): return files(__package__).joinpath('completion.md').read_text(encoding='utf-8')
 
-SKIP_REASONS={'invalid_title','invalid_date','missing_date','uncertain_date','missing_end','past_event','cancelled_event','possible_duplicate','too_soon'}
+SKIP_REASONS={'invalid_location','invalid_title','invalid_date','missing_date','uncertain_date','missing_end','past_event','cancelled_event','possible_duplicate','too_soon'}
 ERROR_REASONS={'search_failed','create_failed','verification_failed','invalid_input'}
 # Conservatively budget at most one model token per UTF-8 byte within the 16k
 # context. Reserve the prompt, schema, framing, and maximum output. Reject the
@@ -25,14 +25,47 @@ def event_user_budget(system=None,schema=None):
     if budget<1: raise RuntimeError('event_payload_budget')
     return budget
 
+EVENT_FIELDS={'title','start','end','date_note','location'}
+
 def validate_events(events):
-    validate({'destination':'leave','summary':None,'events':events})
+    """Extraction validation is structural only; semantic checks follow completion."""
+    if not isinstance(events,list): raise ValueError('event_structure')
     for event in events:
-        if event['date_note'] is not None and (event['start'] is not None or event['end'] is not None):
-            raise ValueError('event_unresolved_date')
-        if event['end'] is not None and len(event['start'])==10 and event['end']<=event['start']:
-            raise ValueError('event_order')
-    if any(len(event['title'])>200 for event in events): raise ValueError('event_title_limit')
+        if not isinstance(event,dict) or set(event)!=EVENT_FIELDS:
+            raise ValueError('event_structure')
+        if any(value is not None and not isinstance(value,str) for value in event.values()):
+            raise ValueError('event_structure')
+
+def start_reason(event):
+    value=event.get('start')
+    if value is None or value=='': return 'missing_date'
+    try: timestamp(value)
+    except (ValueError,TypeError): return 'invalid_date'
+    return None
+
+class FinalSemanticError(ValueError):
+    def __init__(self,code,reason):
+        super().__init__(code)
+        self.reason=reason
+
+def validate_final(event):
+    validate_events([event])
+    if not event['title'] or not event['title'].strip() or len(event['title'])>200:
+        raise FinalSemanticError('event_invalid_title','invalid_title')
+    if event['date_note'] is not None: raise FinalSemanticError('event_unresolved_date','uncertain_date')
+    if start_reason(event): raise FinalSemanticError('event_invalid_date','invalid_date')
+    if not event['end']: raise FinalSemanticError('event_invalid_date','missing_end')
+    try: timestamp(event['end'])
+    except ValueError:
+        raise FinalSemanticError('event_invalid_date','invalid_date') from None
+    if (len(event['start'])==10)!=(len(event['end'])==10): raise FinalSemanticError('event_range','invalid_date')
+    if len(event['start'])==10:
+        if event['end']<=event['start']: raise FinalSemanticError('event_order','invalid_date')
+    elif datetime.fromisoformat(event['end'])<=datetime.fromisoformat(event['start']):
+        raise FinalSemanticError('event_order','invalid_date')
+    location=event['location']
+    if location is not None and (not location.strip() or len(location)>1000):
+        raise FinalSemanticError('event_invalid_location','invalid_location')
 
 def parse_results(raw,events, *, processed=False):
     validate_events(events)
@@ -50,10 +83,8 @@ def parse_results(raw,events, *, processed=False):
         event=events[index]
         if outcome in ('created','existing'):
             if reason is not None: raise ValueError('event_outcome_reason')
-            missing_timed_end=isinstance(event['start'],str) and len(event['start'])>10 and event['end'] is None
-            if (event['start'] is None or event['date_note'] is not None or
-                    (missing_timed_end and outcome=='created' and not processed)):
-                raise ValueError('unsafe_event_outcome')
+            if start_reason(event): raise ValueError('unsafe_event_outcome')
+            if outcome=='created' and not processed: validate_final(event)
         elif outcome=='skipped':
             if not isinstance(reason,str) or reason not in SKIP_REASONS: raise ValueError('event_outcome_reason')
         elif outcome=='error':
@@ -72,100 +103,55 @@ def model_batch(system,schema,payload):
     except OSError:
         raise ModelRequestFailed() from None
 
-def validate_batch(result,indices,keys):
-    if not isinstance(result,dict) or set(result)!={'results'} or not isinstance(result['results'],list):
-        raise ValueError('event_result_keys')
-    if len(result['results'])!=len(indices): raise ValueError('event_result_coverage')
-    for entry,index in zip(result['results'],indices):
-        if not isinstance(entry,dict) or set(entry)!=keys: raise ValueError('event_outcome_keys')
-        if type(entry['index']) is not int or entry['index']!=index: raise ValueError('event_outcome_index')
-    return result['results']
+def duplicate_results(result):
+    if (not isinstance(result,dict) or set(result)!={'outcome'} or
+            result['outcome'] not in ('existing','possible_duplicate','create')):
+        raise ValueError('event_outcome_invalid')
+    return result['outcome']
 
-def duplicate_results(result,events):
-    entries=validate_batch(result,range(len(events)),{'index','outcome'})
-    for entry in entries:
-        if entry['outcome'] not in ('existing','possible_duplicate','no_match'):
-            raise ValueError('event_outcome_invalid')
-    return entries
-
-def completion_results(result,events,indices):
-    entries=validate_batch(result,indices,{'index','outcome','reason','estimated_end'})
-    for entry in entries:
-        event=events[entry['index']]
-        if event['end'] is not None or event['start'] is None or len(event['start'])==10:
+def completion_results(result,event):
+    validate_events([result])
+    if result['start']!=event['start']: raise ValueError('event_completion_unauthorized')
+    for key in ('title','end','location'):
+        if event[key] is not None and result[key]!=event[key]:
             raise ValueError('event_completion_unauthorized')
-        if entry['outcome']=='skipped':
-            if entry['reason']!='missing_end' or entry['estimated_end'] is not None:
-                raise ValueError('event_completion_invalid')
-        elif entry['outcome']=='complete':
-            if entry['reason'] is not None: raise ValueError('event_completion_invalid')
-            estimate=entry['estimated_end']
-            timestamp(estimate)
-            if not isinstance(estimate,str) or len(estimate)==10 or datetime.fromisoformat(estimate)<=datetime.fromisoformat(event['start']):
-                raise ValueError('event_estimated_end')
-        else: raise ValueError('event_completion_invalid')
-    return entries
+    # Location is the dedicated direct-evidence field; null supplies no place.
+    if event['location'] is None and result['location'] is not None:
+        raise ValueError('event_completion_unauthorized')
+    if event['date_note'] is not None and result['date_note'] not in (None,event['date_note']):
+        raise ValueError('event_completion_unauthorized')
+    return result
 
 def process(events,config, *, clock=None):
     from local_agentic_triage.events.calendar import Calendar, canonical
-    validate_events(events)
-    if not events: return {'status':'ok','results':[]}
+    if not isinstance(events,list): raise ValueError('event_structure')
     calendar=Calendar(config,clock=clock)
-    gate_now=calendar.clock(timezone.utc)
-    eligible=[]; results=[]
+    results=[]
     for index,event in enumerate(events):
-        reason=('uncertain_date' if event['date_note'] is not None else
-                'missing_date' if event['start'] is None else
-                'too_soon' if calendar.too_soon(event,now=gate_now) else None)
-        if reason:
-            results.append({'index':index,'outcome':'skipped','reason':reason})
-        else: eligible.append((index,event))
-    if not eligible: return {'status':'ok','results':results}
-    selected=[event for _,event in eligible]
-    nearby=[calendar.nearby(event) for event in selected]
-    sparse=[{key:event[key] for key in ('title','start','end')} for event in selected]
-    decisions=duplicate_results(model_batch(prompt(),DUPLICATE_SCHEMA,
-        {'calendar':config.calendar,'events':sparse,'nearby':nearby}),selected)
-    # Exact sparse equality is a fail-safe when the model misses an earlier
-    # candidate. Do this only after validating the entire duplicate batch and
-    # before completion; never use guessed ends or fuzzy title matching.
-    seen=set()
-    decisions=[dict(entry) for entry in decisions]
-    for entry,event in zip(decisions,sparse):
-        identity=tuple(event[key] for key in ('title','start','end'))
-        if identity in seen: entry['outcome']='existing'
-        seen.add(identity)
-    required=[entry['index'] for entry in decisions if entry['outcome']=='no_match'
-              and selected[entry['index']]['end'] is None and len(selected[entry['index']]['start'])>10]
-    patches={}
-    if required:
-        payload={'events':[{'index':index,'title':selected[index]['title'],'start':selected[index]['start']} for index in required]}
-        patches={entry['index']:entry for entry in completion_results(
-            model_batch(completion_prompt(),COMPLETION_SCHEMA,payload),selected,required)}
-    materialized=list(events); creates=[]
-    for entry in decisions:
-        index=entry['index']; original,event=eligible[index]
-        outcome=entry['outcome']; reason=None
-        if outcome=='possible_duplicate': outcome='skipped'; reason='possible_duplicate'
-        elif outcome=='no_match':
-            patch=patches.get(index)
-            if patch and patch['outcome']=='skipped': outcome='skipped'; reason='missing_end'
+        validate_events([event])
+        reason=start_reason(event)
+        outcome='skipped'
+        if reason is None:
+            nearby=calendar.nearby(event)
+            decision=duplicate_results(model_batch(prompt(),DUPLICATE_SCHEMA,
+                {'event':event,'nearby':nearby}))
+            if decision=='existing': outcome='existing'
+            elif decision=='possible_duplicate': reason='possible_duplicate'
             else:
-                if patch: event=event|{'end':patch['estimated_end']}
-                canonical(event)
-                materialized[original]=event
-                creates.append((original,event))
-                outcome='created'
-        results.append({'index':original,'outcome':outcome,'reason':reason})
-    combined={'status':'ok','results':sorted(results,key=lambda entry:entry['index'])}
-    # Validate every materialized result and recheck every creation's time before
-    # the first write, including when the model calls have taken a long time.
-    final=parse_results(json.dumps(combined),materialized)
-    write_now=calendar.clock(timezone.utc)
-    if any(calendar.too_soon(event,now=write_now) for _,event in creates):
-        raise ValueError('calendar_too_soon')
-    for _,event in creates: calendar.create(event)
-    return final
+                completed=completion_results(model_batch(completion_prompt(),COMPLETION_SCHEMA,
+                    {'event':event}),event)
+                try:
+                    validate_final(completed)
+                except FinalSemanticError as error:
+                    results.append({'index':index,'outcome':'skipped','reason':error.reason})
+                    continue
+                canonical(completed)
+                if calendar.too_soon(completed): reason='too_soon'
+                else:
+                    calendar.create(completed)
+                    outcome='created'
+        results.append({'index':index,'outcome':outcome,'reason':reason})
+    return {'status':'ok','results':results}
 
 
 def extraction_prompt():

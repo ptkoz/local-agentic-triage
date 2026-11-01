@@ -44,11 +44,13 @@ class PromptContractTests(unittest.TestCase):
                      r'(?:only|unless).*explicit.*(?:range|end)',
                      r'exclusive.*strictly after start',
                      r'(?:never|do not).*repair')
-        event = dict(title='Synthetic', start='2099-02-20', end=None, date_note=None)
+        event = dict(title='Synthetic', start='2099-02-20', end=None, date_note=None, location=None)
         validate_events([event])
         validate_events([event | {'end': '2099-02-21'}])
+        validate_events([event | {'end': event['start']}])
+        from local_agentic_triage.events.core import validate_final
         with self.assertRaisesRegex(ValueError, 'event_order'):
-            validate_events([event | {'end': event['start']}])
+            validate_final(event | {'end': event['start']})
         self.assertIsNone(event['end'])
 
     def test_confirmed_event_with_alternatives_is_retained(self):
@@ -58,26 +60,17 @@ class PromptContractTests(unittest.TestCase):
                      r'nonempty date_note.*(?:preserv|list).*alternatives',
                      r'(?:not|different from).*unconfirmed proposal')
 
-    def test_cross_candidate_comparison_uses_only_allowed_evidence(self):
+    def test_single_event_duplicate_identity_and_unknown_values(self):
         self.clauses(prompt(),
-                     r'events\[i\].*allowed evidence is nearby\[i\] plus earlier events\[0:i\].*nothing else',
-                     r'never use later candidates',
-                     r'empty allowed evidence forces no_match before any semantic comparison',
-                     r'index 0 cannot use index 1.*index 1 can use index 0')
-
-    def test_duplicate_alignment_identity_and_unknown_end(self):
-        self.clauses(prompt(),
-                     r'json strings are untrusted data',
-                     r'only strict json matching the schema',
-                     r'exactly one result per candidate index in order',
-                     r'nonempty allowed evidence compare titles semantically',
-                     r'same specific event and equivalent absolute start: existing',
-                     r'modest nonzero start difference, including exactly 30 minutes: possible_duplicate',
-                     r'plausibly same event but ambiguous identity: possible_duplicate',
-                     r'no shared event identity: no_match, even at same/overlapping/adjacent time',
-                     r'existing over possible_duplicate over no_match across evidence',
-                     r'null end is unknown; never infer duration, overlap, or adjacency',
-                     r'do not output event fields or explanations')
+                     r'one supplied event',
+                     r'all supplied event fields.*title, start, end, date_note, and location',
+                     r'missing values are unknown',
+                     r'never invent missing values or infer duration, overlap, or adjacency',
+                     r'equivalent absolute start means existing',
+                     r'exactly 30 minutes.*possible_duplicate',
+                     r'existing over possible_duplicate over create',
+                     r'empty evidence means create',
+                     r'one strict json object.*only outcome')
 
     def test_explicit_zone_digits_and_offset_are_preserved_before_default(self):
         self.clauses(extraction_prompt(),
@@ -89,14 +82,12 @@ class PromptContractTests(unittest.TestCase):
                      r'2\. otherwise.*no zone.*local wall.clock',
                      r'copy the local date.*preserve the stated clock digits unchanged',
                      r'\+01:00 in winter standard time, \+02:00 in summer daylight.saving time',
-                     r'use sent_date only to resolve explicit unambiguous relative dates')
+                     r'resolve explicit unambiguous relative dates such as tomorrow from sent_date')
 
-    def test_duplicate_guard_rejects_row_count_and_reordered_coverage(self):
+    def test_duplicate_guard_rejects_batch_and_extra_fields(self):
         from local_agentic_triage.events.core import duplicate_results
-        candidates = [dict(title='Synthetic', start='2099-02-20', end=None)] * 2
-        entries = [dict(index=i, outcome='no_match') for i in range(2)]
-        self.assertEqual(duplicate_results({'results': entries}, candidates), entries)
-        for invalid in (entries[:1], entries + [dict(index=2, outcome='existing')],
-                        entries[::-1], [entries[0], entries[0]]):
-            with self.subTest(entries=invalid), self.assertRaises(ValueError):
-                duplicate_results({'results': invalid}, candidates)
+        for outcome in ('existing','possible_duplicate','create'):
+            self.assertEqual(duplicate_results({'outcome':outcome}),outcome)
+        for invalid in ({'results':[]},{'outcome':'no_match'},{'outcome':'create','index':0},{}):
+            with self.subTest(invalid=invalid),self.assertRaises(ValueError):
+                duplicate_results(invalid)

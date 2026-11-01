@@ -53,7 +53,7 @@ class PipelineTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as d:
                 store=Store(Path(d)/'db'); box=Mock()
                 box.candidates.return_value=['9']; box.source_key.return_value='key'; box.raw.return_value=raw; box.internal_date.return_value='2026-10-31T01:27:00+01:00'
-                classifier=Mock(return_value=self.disposition(destination='archive',summary='summary',extracted_events=[{'title':'X','start':None,'end':None,'date_note':None}])); events=Mock(return_value=self.event_result({'index':0,'outcome':'skipped','reason':'missing_date'}))
+                classifier=Mock(return_value=self.disposition(destination='archive',summary='summary',extracted_events=[{'title':'X','start':None,'end':None,'date_note':None,'location':None}])); events=Mock(return_value=self.event_result({'index':0,'outcome':'skipped','reason':'missing_date'}))
                 self.assertEqual(poll(box,store,make_config(),classifier,events),0)
                 events.assert_called_once(); box.archive.assert_called_once_with('9'); box.leave.assert_not_called()
                 self.assertEqual(store.prepared('key')['sent_at'],'2026-10-31T01:27:00+01:00')
@@ -96,7 +96,7 @@ class PipelineTests(unittest.TestCase):
     def test_event_model_http_failure_is_sanitized_optional_enrichment(self):
         import urllib.error
         from local_agentic_triage.events.core import process
-        event={'title':'PRIVATE EVENT','start':'2099-12-01','end':None,'date_note':None}
+        event={'title':'PRIVATE EVENT','start':'2099-12-01','end':None,'date_note':None,'location':None}
         with tempfile.TemporaryDirectory() as d:
             store=Store(Path(d)/'db'); box=Mock(); box.validity='77'
             box.candidates.return_value=['9']; box.source_key.return_value='key'
@@ -142,7 +142,7 @@ class PipelineTests(unittest.TestCase):
             box.candidates.return_value=['9']; box.source_key.return_value='key'
             box.raw.return_value=b'From: secret@example.invalid\nSubject: private subject\n\nprivate body'
             box.internal_date.return_value='2026-10-31T01:27:00+01:00'
-            classifier=Mock(return_value=self.disposition(destination='leave',summary=None,extracted_events=[{'title':'PRIVATE EVENT','start':'2026-11-01','end':None,'date_note':None}]))
+            classifier=Mock(return_value=self.disposition(destination='leave',summary=None,extracted_events=[{'title':'PRIVATE EVENT','start':'2026-11-01','end':None,'date_note':None,'location':None}]))
             events=Mock(return_value={'status':'ok','results':[{'index':0,'outcome':'skipped','reason':'too_soon'}]})
             with self.assertLogs('local_agentic_triage',level='INFO') as logs:
                 self.assertEqual(poll(box,store,make_config(),classifier,events),0)
@@ -157,7 +157,7 @@ class PipelineTests(unittest.TestCase):
             store=Store(Path(d)/'db'); box=Mock(validity='77')
             box.candidates.return_value=['9']; box.source_key.return_value='key'
             box.raw.return_value=b'Date: Sat, 31 Oct 2026 01:27:00 +0100\nFrom: synthetic\n\nbody'
-            event={'title':'PRIVATE EVENT','start':'2099-12-01T18:00:00+01:00','end':None,'date_note':None}
+            event={'title':'PRIVATE EVENT','start':'2099-12-01T18:00:00+01:00','end':None,'date_note':None,'location':None}
             classifier=Mock(return_value=self.disposition(destination='archive',summary='summary',extracted_events=[event]))
             events=Mock(return_value=self.event_result({'index':0,'outcome':'created','reason':None}))
             with self.assertLogs('local_agentic_triage',level='INFO') as logs:
@@ -171,7 +171,7 @@ class PipelineTests(unittest.TestCase):
             store.close()
 
     def test_malformed_event_results_are_absorbed_and_disposition_continues(self):
-        event={'title':'PRIVATE EVENT','start':'2099-12-01','end':None,'date_note':None}
+        event={'title':'PRIVATE EVENT','start':'2099-12-01','end':None,'date_note':None,'location':None}
         malformed=(
             None, Mock(), [],
             {'status':'ok','results':[]},
@@ -209,7 +209,7 @@ class PipelineTests(unittest.TestCase):
     def test_archive_retry_does_not_reclassify_or_rerun_events(self):
         with tempfile.TemporaryDirectory() as d:
             store=Store(Path(d)/'db'); box=Mock(); box.candidates.return_value=['9']; box.source_key.return_value='key'; box.raw.return_value=b'Date: Fri, 31 Oct 2026 01:27:00 +0100\nFrom: original\n\nbody'
-            classify=Mock(return_value=self.disposition(destination='archive',summary='Oryginalny zakup.',extracted_events=[{'title':'X','start':None,'end':None,'date_note':None}])); events=Mock(return_value=self.event_result({'index':0,'outcome':'skipped','reason':'missing_date'}))
+            classify=Mock(return_value=self.disposition(destination='archive',summary='Oryginalny zakup.',extracted_events=[{'title':'X','start':None,'end':None,'date_note':None,'location':None}])); events=Mock(return_value=self.event_result({'index':0,'outcome':'skipped','reason':'missing_date'}))
             box.archive.side_effect=RuntimeError('PRIVATE ERROR')
             with self.assertLogs('local_agentic_triage',level='ERROR') as logs:
                 self.assertEqual(poll(box,store,make_config(),classify,events),1)
@@ -269,7 +269,7 @@ class PipelineTests(unittest.TestCase):
             store=Store(Path(d)/'db'); box=Mock()
             box.candidates.return_value=['9']; box.source_key.return_value='key'
             box.raw.return_value=b'Date: Fri, 31 Oct 2026 01:27:00 +0100\nFrom: sender@example.invalid\n\nbody'
-            classifier=Mock(return_value=self.disposition(destination='archive',summary='x'*200,extracted_events=[{'title':'X','start':'2099-01-01','end':None,'date_note':None}]))
+            classifier=Mock(return_value=self.disposition(destination='archive',summary='x'*200,extracted_events=[{'title':'X','start':'2099-01-01','end':None,'date_note':None,'location':None}]))
             events=Mock()
             with self.assertLogs('local_agentic_triage',level='ERROR'):
                 self.assertEqual(poll(box,store,make_config(discord_limit=100),classifier,events),1)
