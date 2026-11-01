@@ -47,7 +47,7 @@ def main(argv=None):
             try:
                 if args.command=='report': send(store,config,runner=subprocess.run); return 0
                 mailbox=Mailbox.connect(config)
-                try: return poll(mailbox,store,config)
+                try: return poll(mailbox,store,config,runner=subprocess.run)
                 finally: mailbox.close()
             finally: store.close()
     except Busy:

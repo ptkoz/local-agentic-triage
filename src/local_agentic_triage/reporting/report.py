@@ -52,10 +52,11 @@ def label(value,comma=False):
     return f'{value.day} {MONTHS[value.month]}{separator}{value:%H:%M}'
 
 
-def header(user_id,start,end):
+def header(user_id,start,end,count):
     if not re.fullmatch(r'[1-9][0-9]{0,19}',user_id) or int(user_id)>MAX_SNOWFLAKE: raise ValueError('invalid discord user id')
     if boundary(end)<boundary(start): raise ValueError('invalid report period')
-    return f'<@{user_id}>, między {label(start)} a {label(end)}, następujące wiadomości zostały przeniesione do archiwum:'
+    wording='wiadomości** przeniesionej' if count==1 else 'wiadomościach** przeniesionych'
+    return f'<@{user_id}>, powyżej znajduje się informacja o **{count} {wording} do Archiwum między {label(start)} a {label(end)}:'
 
 
 def record_message(row,limit):
@@ -88,32 +89,16 @@ def send(store,config,at=None,*,runner=None):
     end=at or datetime.now(timezone.utc)
     if not isinstance(end,datetime) or end.tzinfo is None: raise ValueError('invalid report boundary')
     end=end.astimezone(timezone.utc)
-    existing=store.current_report_window()
     start,stamp=store.report_window(end.isoformat())
     rows=store.pending(stamp)
-    window_has_rows=store.report_window_has_rows()
-    if window_has_rows is None:
-        window_has_rows=bool(rows)
-        store.set_report_window_has_rows(window_has_rows)
-    log.info('report_started rows=%d',len(rows))
-    if not rows:
-        if existing is not None and window_has_rows:
-            store.complete_report_window(stamp)
-            log.info('report_window_completed_after_retry')
-            return
-        text=f'Od {label(start,comma=True)} nie zarejestrowano żadnych wiadomości przeniesionych do archiwum.'
-        deliver(runner,config,text,'empty')
-        store.complete_report_window(stamp)
-        log.info('report_empty_completed')
-        return
     messages=[record_message(row,config.discord_limit) for row in rows]
-    intro=header(config.discord_user_id,start,stamp)
-    if len(intro)>config.discord_limit: raise ValueError('report intro too long')
-    deliver(runner,config,intro,'intro')
-    log.info('report_intro_completed rows=%d',len(rows))
+    summary=header(config.discord_user_id,start,stamp,store.moved_count(start,stamp))
+    if len(summary)>config.discord_limit: raise ValueError('report summary too long')
+    log.info('report_started rows=%d',len(rows))
     for index,(row,text) in enumerate(zip(rows,messages),1):
         log.info('report_record_sending record=%d total=%d',index,len(rows))
         deliver(runner,config,text,'record',index)
-        store.reported([row['source_key']],stamp)
+        store.reported([row['source_key']])
         log.info('report_record_completed record=%d',index)
+    deliver(runner,config,summary,'summary')
     store.complete_report_window(stamp)

@@ -20,7 +20,8 @@ class StoreTests(unittest.TestCase):
             self.assertEqual(len(rows),1)
             self.assertEqual(rows[0]['summary'],"summary ' quote")
             s.reported(['key'],'2026-11-10T17:00:00+00:00'); self.assertEqual(s.pending(),[])
-            self.assertEqual(s.last_reported_at(),'2026-11-10T17:00:00+00:00')
+            self.assertIsNone(s.last_reported_at())
+            s.complete_report_window('2026-11-10T17:00:00+00:00')
             self.assertEqual(s.report_window('2026-11-11T17:00:00+00:00'),('2026-11-10T17:00:00+00:00','2026-11-11T17:00:00+00:00'))
             self.assertEqual(s.report_window('2026-11-12T17:00:00+00:00'),('2026-11-10T17:00:00+00:00','2026-11-11T17:00:00+00:00'))
             s.reported([], '2026-11-11T17:00:00+00:00')
@@ -31,6 +32,19 @@ class StoreTests(unittest.TestCase):
             s.clear_report_window()
             self.assertEqual(s.db.execute('pragma journal_mode').fetchone()[0],'wal')
             self.assertIn('sent_at',[r[1] for r in s.db.execute('pragma table_info(reports)')])
+            s.close()
+
+    def test_window_count_uses_ready_interval_including_delivered_rows(self):
+        with tempfile.TemporaryDirectory() as d:
+            s=Store(Path(d)/'db')
+            start='2026-11-01T07:00:00+00:00'; end='2026-11-01T17:00:00+00:00'
+            s.complete_report_window(start)
+            for key,ready in (('start',start),('inside','2026-11-01T08:00:00+00:00'),('end',end),('later','2026-11-01T18:00:00+00:00')):
+                s.prepare(key,'sender','summary',sent_at=start)
+                s.db.execute('UPDATE reports SET ready_at=?,reported_at=? WHERE source_key=?',(ready,ready,key))
+            s.db.commit()
+            self.assertEqual(s.report_window(end),(start,end))
+            self.assertEqual(s.moved_count(start,end),2)
             s.close()
 
     def test_legacy_window_migration_is_atomic_and_infers_acknowledged_rows(self):

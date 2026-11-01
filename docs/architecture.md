@@ -220,9 +220,15 @@ SQLite, Seen, or MOVE and are never split or truncated. Event processing is
 then followed, whether successful or not, by INSERT OR IGNORE of an immutable prepared report row with
 ready_at NULL. Only then does Himalaya verify UID presence, add raw `\Seen` by
 UID with `imap store --flag \Seen -- UID`, and move from the configured inbox to
-configured archive. Success sets ready_at. A prepared row found
+configured archive. Success sets ready_at, then immediately sends that row through
+Hermes when a delivery runner is supplied. Successful delivery sets reported_at
+to the actual delivery time. Delivery failure logs only safe metadata and leaves
+the row ready/unreported without failing the poll; scheduled reporting retries it.
+The production CLI explicitly injects subprocess.run; direct poll() calls default
+to no delivery, and tests can inject a synthetic runner. A prepared row found
 on retry preserves the original sender/summary, does not fetch the body, does
-not classify again, and does not rerun events. It retries only IMAP finalization.
+not classify again, and does not rerun events. It retries IMAP finalization, then
+marks ready and attempts immediate delivery.
 A ready row is already finalized. SQLite uses WAL, a busy timeout and parameter
 binding. The `reports` table stores source_key, sender, the normalized message
 timestamp (`sent_at`), summary, created_at, ready_at and reported_at; the single-row `report_state` table preserves one
@@ -234,26 +240,43 @@ keys for the configured account/inbox/UIDVALIDITY are considered. An exact UID s
 without the `\Flagged` filter marks an absent UID ready: MOVE succeeded or the
 message was otherwise removed. Present UIDs remain for normal prepared retry.
 Search/validity failures leave rows unready and fail the poll. Reconciliation
-never reruns classification or events, and adds no queue or schema columns.
+never reruns classification or events; after marking an absent row ready it
+attempts the same immediate delivery. It adds no queue or schema columns.
 If a Calendar call succeeds before a crash preceding prepare, the next call
 relies on configured-calendar semantic search to avoid duplication. A Seen update can succeed
 before a failed MOVE, and is safely repeated on retry.
 
 ## Reports
 
-Ready, unreported rows sort by created_at then source_key. A new empty window
-sends a short notification without a mention and advances the durable boundary;
-a retry after every row was already acknowledged only completes its stale window.
-A nonempty run first sends one introduction with the configured user's mention
-and Europe/Warsaw period. It then sends exactly one Discord message per report
-row in the form `Od **…** z dnia …` followed by the summary as a Discord quote.
+Ready, unreported rows sort by created_at then source_key. Scheduled reporting
+first sends pending rows whose ready_at is at or before the frozen end boundary,
+acknowledging each successful delivery immediately with its actual delivery time.
+There is no introduction. After all pending rows succeed, exactly one final
+summary mentions the configured user and describes the Europe/Warsaw interval,
+including a zero count. Its count includes all rows with ready_at in (start, end],
+even those already delivered immediately. For example:
+`<@USER_ID>, powyżej znajduje się informacja o **9 wiadomościach** przeniesionych do Archiwum między 1 lis 08:00 a 1 lis 18:00:`.
+The singular uses `1 wiadomości` and `przeniesionej`.
+
+The start comes only from report_meta.last_end_at, the previously completed
+scheduled-report end, never from reported_at. Without that metadata the initial
+start defaults to one day before the captured end. Existing frozen windows are
+preserved across upgrades; legacy has_rows state remains compatible but is no
+longer used for delivery decisions. No schema columns are added.
+
+Each row is one Discord message in the form `Od **…** z dnia …` followed by the
+summary as a Discord quote.
 The displayed date comes from the message's valid Date header or, when that is
 missing, malformed or lacks a timezone, from its IMAP INTERNALDATE. Both are
 captured before disposition and converted to Europe/Warsaw; processing time is
 never substituted. Rows lacking a retained Date or INTERNALDATE render `data
 wiadomości niedostępna` and do not block the rest of the report. Each row is
-marked reported immediately after its own send succeeds. A failed send leaves
-that row and all following rows pending under the frozen window. A record that
+marked reported immediately after its own send succeeds. A failed row send leaves
+that row and all following rows pending under the frozen window and prevents the
+final summary. A failed summary keeps the same window frozen; the next run sends
+only the summary because successful row deliveries are already acknowledged.
+Only successful summary delivery advances report_meta.last_end_at and clears
+the window. Rows becoming ready after the captured end belong to the next window. A record that
 cannot fit the configured Discord limit fails before any delivery; records are
 not split or truncated. Sanitization flattens whitespace/control characters and
 neutralizes Discord Markdown, mentions and links while preserving ordinary email

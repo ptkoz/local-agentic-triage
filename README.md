@@ -5,8 +5,8 @@ the sole mail boundary. One fixed loopback Qwen model performs four separate pas
 JSON Schemas: destination/summary, independent sparse event extraction, duplicate
 checking against nearby Calendar rows, and missing timed-end completion only
 after no_match. Guessed values never influence duplicate checking. A deterministic
-single-calendar adapter creates and verifies events, and Hermes sends a daily
-Discord report without participating in classification. Destination failures are
+single-calendar adapter creates and verifies events, and Hermes sends immediate archive rows and a daily
+Discord summary without participating in classification. Destination failures are
 fatal/retryable; extraction and later event failures never block leave/archive.
 
 ## Offline development
@@ -18,9 +18,12 @@ make smoke
 ```
 
 Tests use synthetic data and never connect to mail, DMR, Calendar, Discord, or
-other live services. Report delivery requires both an injected runner and the
-CLI `--deliver` flag; `report send` without that flag exits before report-state
-access.
+other live services. Delivery requires an explicitly injected runner; direct `poll()` calls disable
+immediate sends by default. The production `mail poll` CLI injects the runner
+and sends each row after archive completion, including recovered archives.
+Scheduled `report send` additionally requires `--deliver`; without it the command
+exits before report-state access. Failed immediate sends leave ready rows for
+`report send` to retry without failing the mail poll.
 
 ## Build and install
 
@@ -75,7 +78,9 @@ runbook](docs/debugging.md) for UID/UIDVALIDITY scope, error-code meanings,
 privacy rules, and the exact no-mutation procedure.
 
 The poll LaunchAgent runs every 300 seconds. The report LaunchAgent runs at
-local 18:00. See [architecture](docs/architecture.md) for retry and delivery
+local 18:00. It retries pending rows first, then sends one mentioned summary
+counting every archive in the frozen Europe/Warsaw interval, including rows
+already sent immediately and intervals with zero archives. See [architecture](docs/architecture.md) for retry and delivery
 semantics, [security](docs/security.md) for privacy boundaries, and the
 [debugging runbook](docs/debugging.md) for production diagnosis.
 
