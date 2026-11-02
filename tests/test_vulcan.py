@@ -62,7 +62,8 @@ class VulcanTests(unittest.TestCase):
         return status, box, classifier, run, raw, '\n'.join(logs.output)
 
     def test_matching_parsed_sender_forwards_exact_raw_after_classification(self):
-        for sender in (b'noreply@vulcan.net.pl', b'NoReply@VULCAN.NET.PL'):
+        for sender in (b'noreply@vulcan.net.pl', b'NoReply@VULCAN.NET.PL',
+                       b'Dziennik VULCAN <noreply@vulcan.net.pl>'):
             for destination in ('leave', 'archive'):
                 with self.subTest(sender=sender, destination=destination):
                     status, box, classifier, run, raw, logs = self.run_poll(sender, destination=destination)
@@ -74,7 +75,7 @@ class VulcanTests(unittest.TestCase):
 
     def test_nonmatching_sender_does_not_invoke(self):
         for sender in (b'noreply@vulcan.net.pl.evil.invalid', b'xnoreply@vulcan.net.pl', b'other@example.invalid',
-                       b'Dziennik <noreply@vulcan.net.pl>'):
+                       b'Dziennik <noreply@vulcan.net.pl.evil.invalid>'):
             with self.subTest(sender=sender):
                 status, box, classifier, run, raw, logs = self.run_poll(sender)
                 self.assertEqual(status, 0)
