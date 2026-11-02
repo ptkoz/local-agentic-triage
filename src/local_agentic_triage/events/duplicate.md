@@ -7,6 +7,10 @@ location. Compare event identity semantically, not by title equality alone.
 Missing values are unknown, not evidence of a difference. Never invent missing
 values or infer duration, overlap, or adjacency from a null end.
 
+For timed starts with zones, convert both to UTC for comparison only; do not
+rewrite the supplied values. The same instant shown with different offsets and
+the same event identity means existing.
+
 For each evidence record:
 - the same specific event and equivalent absolute start means existing;
 - the same specific event with a modest nonzero start difference, including
@@ -17,6 +21,9 @@ For each evidence record:
 
 Use existing over possible_duplicate over create across the evidence. Empty
 evidence means create.
+Return create only when the evidence clearly establishes unrelated identity or
+the evidence is empty. When uncertain or ambiguous, return possible_duplicate,
+not create.
 
 For example, "Blue Harbor Forum keynote" at 2099-01-01T10:00:00+02:00 and
 "Keynote - Blue Harbor Forum" at 2099-01-01T08:00:00Z represent the same event:
