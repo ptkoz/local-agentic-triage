@@ -1,3 +1,4 @@
+import logging
 import os
 import subprocess
 import tempfile
@@ -5,10 +6,21 @@ import unittest
 from pathlib import Path
 from unittest.mock import ANY,Mock,patch
 from local_agentic_triage.common.lock import Lock,Busy
-from local_agentic_triage.cli import main
+from local_agentic_triage.cli import entry,main
 from helpers import config_text
 
 class CLITests(unittest.TestCase):
+    def test_entry_configures_logs_with_date_and_time(self):
+        with patch('local_agentic_triage.cli.logging.basicConfig') as basic_config,patch('local_agentic_triage.cli.main',return_value=0):
+            with self.assertRaises(SystemExit) as stopped:
+                entry()
+        self.assertEqual(stopped.exception.code,0)
+        basic_config.assert_called_once_with(
+            level=logging.INFO,
+            format='%(asctime)s %(levelname)s %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S',
+        )
+
     def test_lock(self):
         with tempfile.TemporaryDirectory() as d:
             p=Path(d)/'lock'
