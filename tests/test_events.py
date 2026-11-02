@@ -51,7 +51,7 @@ class EventTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'^model redirect forbidden$'):
             handlers[1].redirect_request(None,None,302,'','','https://example.invalid')
         self.assertEqual(opener.open.call_args.kwargs['timeout'],300)
-        self.assertEqual(json.loads(opener.open.call_args.args[0].data)['model'],'docker.io/ai/qwen35-mail:16k')
+        self.assertEqual(json.loads(opener.open.call_args.args[0].data)['model'],'docker.io/ai/ministral3-mail-8b:16k')
 
 
     def test_event_source_has_no_second_transport_or_stream_parser(self):

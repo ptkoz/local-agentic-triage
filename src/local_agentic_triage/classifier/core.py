@@ -6,7 +6,7 @@ import urllib.request
 from dataclasses import replace
 
 ENDPOINT='http://127.0.0.1:12434/engines/v1/chat/completions'
-MODEL='docker.io/ai/qwen35-mail:16k'
+MODEL='docker.io/ai/ministral3-mail-8b:16k'
 CONTEXT_TOKENS=16384
 MAX_TOKENS=2048
 TIMEOUT=300
@@ -87,7 +87,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self,*args,**kwargs): raise ValueError('model redirect forbidden')
 
 def chat_completion(messages,response_format):
-    data={'model':MODEL,'temperature':0,'chat_template_kwargs':{'enable_thinking':False},'response_format':response_format,'max_tokens':MAX_TOKENS,'messages':messages}
+    data={'model':MODEL,'temperature':0,'response_format':response_format,'max_tokens':MAX_TOKENS,'messages':messages}
     request=urllib.request.Request(ENDPOINT,data=json.dumps(data).encode(),headers={'Content-Type':'application/json'})
     # Disable environment proxies; only this fixed loopback endpoint is permitted.
     opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect())

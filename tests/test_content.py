@@ -38,11 +38,10 @@ class ContentTests(unittest.TestCase):
             with self.assertRaises(ValueError): classify(parse(b'Date: today\n\nbody',100))
             req=call.call_args.args[0]; data=json.loads(req.data)
             self.assertEqual(req.full_url,'http://127.0.0.1:12434/engines/v1/chat/completions')
-            self.assertEqual(data['model'],'docker.io/ai/qwen35-mail:16k')
+            self.assertEqual(data['model'],'docker.io/ai/ministral3-mail-8b:16k')
             self.assertEqual(data['max_tokens'],2048)
             self.assertEqual(call.call_args.kwargs['timeout'],300)
-            self.assertNotIn('enable_thinking',data)
-            self.assertEqual(data['chat_template_kwargs'],{'enable_thinking':False})
+            self.assertNotIn('chat_template_kwargs',data)
             self.assertEqual(set(data['response_format']['json_schema']['schema']['properties']),{'summary'})
             self.assertIn('sent_date',data['messages'][1]['content'])
 

@@ -4,7 +4,7 @@ from unittest.mock import patch
 from local_agentic_triage.classifier import core
 from local_agentic_triage.mail.mime import parse
 
-class FourPassTests(unittest.TestCase):
+class FivePassTests(unittest.TestCase):
     def test_destination_pass_returns_only_disposition(self):
         mail=parse(b'From: synthetic@example.invalid\n\nbody',1000)
         with patch.object(core,'chat_completion',side_effect=[
