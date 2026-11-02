@@ -8,6 +8,8 @@ from urllib.parse import quote
 from local_agentic_triage.classifier.core import strict_json
 from local_agentic_triage.common.diagnostics import CommandError, error_code
 
+VULCAN_SENDER = 'noreply@vulcan.net.pl'
+
 
 def uid_value(value):
     if (not isinstance(value, str) or not re.fullmatch(r'[1-9][0-9]*', value)
@@ -100,6 +102,20 @@ class Mailbox:
         if len(set(uids)) != len(uids):
             raise ValueError('himalaya_search_invalid')
         return uids
+
+    def vulcan_uids(self, candidates):
+        """Candidate UIDs whose IMAP envelope From email is exactly the eduVULCAN sender."""
+        if not candidates:
+            return set()
+        output = self.command(
+            ['envelope', 'search', '-m', self.config.inbox, '--page-size', str(len(candidates)),
+             'from', VULCAN_SENDER, 'and', 'not', 'flag', 'flagged'], json_output=True)
+        try:
+            found = {uid_value(item['id']) for item in strict_json(output)['envelopes']
+                     if [sender['email'].lower() for sender in item['from']] == [VULCAN_SENDER]}
+        except (ValueError, KeyError, TypeError, AttributeError):
+            raise ValueError('himalaya_result_invalid') from None
+        return found & set(candidates)
 
     def all_uids(self):
         output = self.command(['imap', 'raw'], self._select('a2 UID SEARCH ALL\r\n'))

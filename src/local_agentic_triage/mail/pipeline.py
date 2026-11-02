@@ -3,7 +3,7 @@ import json
 from dataclasses import replace
 from pathlib import Path
 from local_agentic_triage.common.lock import Lock
-from local_agentic_triage.mail.mime import parse,vulcan_sender
+from local_agentic_triage.mail.mime import parse
 from local_agentic_triage.mail.vulcan import forward
 from local_agentic_triage.mail.imap import uid_value
 from local_agentic_triage.classifier.core import classify, validate_disposition, bound_mail
@@ -45,6 +45,8 @@ def poll(mailbox,store,config,classifier=classify,event_processor=process, *, ex
     except Exception as exc:
         log.error('mail_candidates_failed error=%s%s',error_code(exc),error_suffix(exc)); return 1
     log.info('mail_candidates_discovered count=%d',len(candidates))
+    try: vulcan=set(mailbox.vulcan_uids(candidates))
+    except Exception: vulcan=set(); log.error('agentic_vulcan_failed result=lookup')
     def report_ready(key):
         if runner is None: return
         try:
@@ -101,13 +103,9 @@ def poll(mailbox,store,config,classifier=classify,event_processor=process, *, ex
                 continue
             stage='read'
             raw=mailbox.raw(uid)
-            if vulcan_sender(raw):
-                # Best-effort side quest: log only fixed results, never block triage.
-                try:
-                    forward(raw,config)
-                    log.info('agentic_vulcan_completed uid=%s result=delivered',uid)
-                except Exception:
-                    log.error('agentic_vulcan_failed uid=%s result=failed',uid)
+            if uid in vulcan:
+                try: forward(raw,config); log.info('agentic_vulcan_completed uid=%s result=delivered',uid)
+                except Exception: log.error('agentic_vulcan_failed uid=%s result=failed',uid)
             mail=parse(raw,config.max_mail_bytes)
             if not mail.sent_date:
                 mail=replace(mail,sent_date=mailbox.internal_date(uid))

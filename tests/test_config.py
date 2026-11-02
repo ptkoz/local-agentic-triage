@@ -11,9 +11,8 @@ class ConfigTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             Config()
         required = ('account', 'inbox', 'archive', 'channel', 'discord_user_id',
-                    'calendar', 'himalaya', 'hermes', 'agentic_vulcan',
-                    'agentic_vulcan_config', 'agentic_vulcan_state', 'database',
-                    'poll_lock', 'report_lock')
+                    'calendar', 'himalaya', 'hermes', 'database', 'poll_lock',
+                    'report_lock')
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'config.toml'
             for key in required:
@@ -22,22 +21,6 @@ class ConfigTests(unittest.TestCase):
                 path.write_text('\n'.join(f'{name} = {value!r}' for name, value in values.items()))
                 with self.subTest(key=key), self.assertRaises(ValueError):
                     load(path)
-
-    def test_agentic_paths_required_and_absolute(self):
-        keys = ('agentic_vulcan', 'agentic_vulcan_config', 'agentic_vulcan_state')
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / 'config.toml'
-            for key in keys:
-                with self.subTest(key=key):
-                    path.write_text(config_text(**{key: 'relative'}))
-                    with self.assertRaises(ValueError): load(path)
-                    path.write_text('\n'.join(line for line in config_text().splitlines()
-                                              if not line.startswith(key + ' =')))
-                    with self.assertRaises(ValueError): load(path)
-            path.write_text(config_text())
-            config = load(path)
-            for key in keys:
-                self.assertTrue(Path(getattr(config, key)).is_absolute())
 
     def test_pre_delivery_lock_config_gets_compatible_default(self):
         with tempfile.TemporaryDirectory() as directory:

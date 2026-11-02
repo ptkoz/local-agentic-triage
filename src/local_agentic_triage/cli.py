@@ -26,12 +26,10 @@ def main(argv=None):
     try:
         config=load(args.config)
         if args.command=='config':
-            for executable in (config.himalaya,config.hermes,config.agentic_vulcan):
+            for executable in (config.himalaya,config.hermes):
                 path=Path(executable)
                 if not path.is_file() or not os.access(path,os.X_OK):
                     raise ValueError('configured executable unavailable')
-            if not Path(config.agentic_vulcan_config).is_file():
-                raise ValueError('configured agentic config unavailable')
             log.info('config_valid')
             return 0
         if args.command=='mail' and args.action=='diagnose':

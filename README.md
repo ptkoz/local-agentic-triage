@@ -45,8 +45,7 @@ placeholder is replaced. Set all of these explicitly:
 - Discord channel and user ID;
 - the one allowed Calendar name;
 - absolute Himalaya, Hermes, SQLite database, poll-lock, report-lock, and shared
-  Discord delivery-lock paths;
-- absolute agentic-vulcan launcher, config, and state paths.
+  Discord delivery-lock paths.
 
 Unknown keys, unresolved placeholders, relative paths, control characters, and
 invalid Discord identifiers are rejected. Himalaya account and mailbox values
@@ -118,10 +117,9 @@ semantics, [security](docs/security.md) for privacy boundaries, and the
    ```
 
    `config validate` parses every field, rejects unresolved placeholders and
-   invalid targets, confirms that the configured Himalaya, Hermes, and
-   agentic-vulcan paths are executable, and confirms that the agentic-vulcan
-   config is a file. It does not open the database or contact any service. The
-   LaunchAgents use a minimal system `PATH`, so all executable paths must be
+   invalid targets, and confirms that the configured Himalaya and Hermes paths
+   are executable. It does not open the database or contact any service. The
+   LaunchAgents use a minimal system `PATH`, so both executable paths must be
    absolute.
 5. Before allowing live effects, verify the external dependencies separately:
    Himalaya v2.1.0 can access the configured account and both mailboxes; Docker
@@ -154,28 +152,10 @@ semantics, [security](docs/security.md) for privacy boundaries, and the
 
 ## eduVULCAN forwarding
 
-Normal triage also forwards notifications with exactly one valid From mailbox
-matching `noreply@vulcan.net.pl` case-insensitively to agentic-vulcan before
-classification. This is a best-effort side quest: the message always continues
-through the normal pipeline, and a forwarding failure never blocks or retries it.
-The result is logged as fixed `agentic_vulcan_completed uid=<uid> result=delivered`
-or `agentic_vulcan_failed uid=<uid> result=failed`.
-`mail diagnose` remains read/classification only and never forwards.
-
-Set `agentic_vulcan` to the production launcher at `~/.local/bin/agentic-vulcan`,
-and `agentic_vulcan_config` and `agentic_vulcan_state` to their deployment paths
-under `~/Library/Application Support/agentic-vulcan`. Expand these to absolute
-paths in local config; tracked examples intentionally use placeholders. The
-triage installer preserves an existing `config.toml`, so an upgrade from a
-version without this integration must add all three keys before installing or
-activating the new zipapp.
-`config validate` checks the launcher executable and config file without running
-it or reading state contents. Configure and verify agentic-vulcan separately
-before an authorized deployment. A logged `agentic_vulcan_failed` means the
-handoff did not produce a valid success receipt; inspect that service separately
-without copying private output into triage logs.
-
-Forwarding is at most one attempt per read: a failed handoff is not retried by
-triage, but a later failure of the normal pipeline before leave or archive
-preparation re-reads the mail and may deliver again. There is no new queue,
-deduplication, or local forwarding state. Prepared archive retries skip forwarding.
+Mail whose Himalaya/IMAP envelope From email equals `noreply@vulcan.net.pl`
+(case-insensitive) is piped as raw bytes to `~/.local/bin/agentic-vulcan process
+--config ~/Library/Application Support/agentic-vulcan/config.json --state
+~/Library/Application Support/agentic-vulcan/state` before classification. The
+paths are fixed and resolved from `$HOME`; there is no configuration. Forwarding
+is best effort: failures are logged as fixed `agentic_vulcan_failed` lines, are
+not retried, and never block triage. `mail diagnose` never forwards.

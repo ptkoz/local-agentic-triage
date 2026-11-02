@@ -67,13 +67,7 @@ No live mailbox, DMR, calendar or Discord operations belong in tests. Build,
 compile and offline smoke tests are sufficient for local review. Deployment,
 configuration review and service activation are a separate parent-agent step.
 
-The eduVULCAN handoff sends original raw mail only to the configured absolute
-agentic-vulcan launcher. The From match is routing, not sender authentication;
-mail delivery authentication remains outside this integration. No child output,
-mail content, configured paths, or exception text enters triage logs. Only a strict
-success receipt is counted as delivered; nonzero status, invalid receipt, timeout, and
-OS errors become the fixed `agentic_vulcan_failed uid=<uid> result=failed` log line
-and never block ordinary triage. Config validation checks launcher
-executability and config-file existence without opening private agentic-vulcan
-state or executing the launcher. Tests mock this boundary and never invoke live
-agentic-vulcan or eduVULCAN.
+The eduVULCAN handoff sends raw mail only to the fixed local `agentic-vulcan`
+launcher. The envelope sender match is routing, not authentication. Child output,
+mail content, and exception text never enter triage logs; tests mock the
+boundary and never run agentic-vulcan.

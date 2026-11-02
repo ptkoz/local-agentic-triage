@@ -307,25 +307,13 @@ scheduled run may already have delivered and acknowledged it.
 
 ## eduVULCAN handoff
 
-The poll reads raw RFC822 bytes once. Before ordinary MIME/body decoding, a
-headers-only UTF-8 parser applies the same deliberately narrow From grammar as
-agentic-vulcan: it requires one valid From mailbox and rejects duplicate headers,
-multiple addresses, groups, comments, controls and defective From syntax. A
-case-insensitive `noreply@vulcan.net.pl` match invokes
-`<agentic_vulcan> process --config <agentic_vulcan_config> --state <agentic_vulcan_state>`.
-The exact original bytes travel on stdin with `shell=False`, discarded stderr,
-stdout drained through a pipe and capped at 1024 bytes (oversize is a failure),
-no temporary mail file, and the configured positive timeout.
-Exit status must be zero and stdout must be strict JSON with exactly
-`{"code":"DELIVERED","deliveries":1}` (integer count, no duplicate keys or extras).
-The handoff is a best-effort side quest: success logs the fixed
-`agentic_vulcan_completed uid=<uid> result=delivered`, any failure logs the fixed
-`agentic_vulcan_failed uid=<uid> result=failed`, and in both cases the normal
-summary, destination, events, and leave/archive flow proceeds unchanged.
-Diagnosis never invokes the handoff.
-
-A failed handoff is not retried. There is no new queue, dedupe mechanism, or state,
-so a crash, classification failure, or disposition failure before archive
-preparation re-reads the mail and can repeat delivery. Archive preparation freezes
-the existing retry path, which neither reads raw mail nor forwards again. A child
-timeout can also leave an unknown delivery outcome and a duplicate on retry.
+Once per poll, one `himalaya envelope search` (`--page-size` = candidate count,
+`from noreply@vulcan.net.pl and not flag flagged`, JSON) yields the unflagged
+candidates whose envelope From email equals `noreply@vulcan.net.pl`
+case-insensitively. Raw mail is never parsed for the sender. For those UIDs the
+poll runs `agentic-vulcan process` with the exact raw bytes on stdin (`shell=False`,
+configured timeout) before MIME decoding. Success is exit status 0 and stdout
+exactly `{"code":"DELIVERED","deliveries":1}`. Any failure, or a failed lookup,
+logs a fixed `agentic_vulcan_failed` line and normal triage continues unchanged.
+There is no queue, deduplication, or retry state, so a later pipeline failure that
+re-reads the mail can deliver it again.
