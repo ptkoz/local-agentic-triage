@@ -76,16 +76,16 @@ class PackagingTests(unittest.TestCase):
         from importlib.resources import files
         expected={
             'classifier/destination.json': '02cdef55c33c3cad5a51455b47ba4068242c5c81547d9a609fc871ca22d037c6',
-            'classifier/destination.md': '5f8f907591b6b5d3f09c305d37a142949a47910066c94e6f0fe10ee212bdbbf8',
+            'classifier/destination.md': '387648d89455521af54121888be33c9ea4e6df2a69da181168105274f670db4a',
             'classifier/prompt.md': '12a7044a41d3acc9b173ad69a71a55f3e8783399eaee291057460a1075aecf6c',
             'classifier/summary.json': '7778048986365c1f57273fbef05f9ff773310bac8ccc8f371357c5d8c392b06f',
             'classifier/summary.md': 'a16a8dfffbcc0852b41a9e3b00b2447622128568a2e13cc51cc1fd5030ceb233',
             'events/completion.json': '04110de9593868434971c4490d7b877202e055b5bbd25783afe7d9b5f0a4f85f',
-            'events/completion.md': 'eb9582c9f7409a5e08bc3efa3aded76cdd9f1b4c78dcbc30983f8f149831bfc9',
+            'events/completion.md': '7ce3e967ea94f5d5d21554138b922fcdec8e4ecc2b9b1e28de04ab42d5960ca8',
             'events/duplicate.json': 'bd7f0ec4d72545eab7d4af81f7e548bcff334475b6fe9331645c85c9313173c3',
-            'events/duplicate.md': '54cf220b88c9eb23bedc0ed36926301024654e22bbf03188ca12b59ba3f26305',
+            'events/duplicate.md': '20e7d321d2c0c9c12122df351ecac86da26338d41dab3ee1266fe6bf3d0966be',
             'events/extraction.json': 'a9160a341ed35135f0331dcc902364e1de8324e2a1a5658128505c9c31c07644',
-            'events/extraction.md': '8585e5d322f78ee0385ee9c62d55d7bca0b70ebcf61d8475be03c1271912709c'}
+            'events/extraction.md': 'b0aee6d79c104eed3559d52af1145cafbb0f6b9b5a4ea0e21ccaee31b7d506d3'}
         for name,digest in expected.items():
             with self.subTest(resource=name):
                 self.assertEqual(hashlib.sha256(files('local_agentic_triage').joinpath(name).read_bytes()).hexdigest(),digest)

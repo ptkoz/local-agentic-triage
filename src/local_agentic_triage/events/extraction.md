@@ -33,6 +33,12 @@ do not roll to a future month or year or choose a different day.
 Resolve explicit unambiguous relative
 dates such as tomorrow from sent_date (the following local calendar day), not
 from the current clock. If the anchor is missing or ambiguous, leave unresolved.
+Resolve a relative date before selecting its timezone offset. The offset must
+match the resolved event date, not sent_date. Preserve every explicit numeric
+offset literally: -05:00 remains -05:00.
+For ordinary daytime Europe/Warsaw values, dates on or after the last Sunday in
+March and before the last Sunday in October use +02:00; other dates use +01:00.
+A day-only date such as "the 20th" takes the month of sent_date, whatever the offset.
 Uncertain dates remain unresolved: set start and end null and explain uncertainty
 in date_note. Missing dates have start/end/date_note null. Resolved dates have
 null date_note. Timed ISO timestamps require a timezone offset; all-day dates
@@ -42,6 +48,8 @@ end is exclusive and strictly after start. Never repair an invalid or equal end
 by shifting dates or inventing a duration. Supplied timed
 end must be strictly after start. Preserve supplied information. Extract concrete meetings, appointments, purchased tickets, and confirmed
 reservations: concerts, cinema, flights, journeys, hotels, or restaurant bookings.
+Return one candidate for each separately stated confirmation, even when several
+confirmations appear to represent the same event. Never deduplicate event candidates.
 A confirmed reservation or event with uncertain date alternatives is still an
 event: retain the event with start and end null and a nonempty date_note
 preserving all alternatives. This is different from an unconfirmed proposal,

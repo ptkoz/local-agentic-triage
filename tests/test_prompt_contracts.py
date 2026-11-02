@@ -2,7 +2,7 @@
 import unittest
 
 from local_agentic_triage.classifier.core import disposition_prompt, summary_prompt
-from local_agentic_triage.events.core import extraction_prompt, prompt
+from local_agentic_triage.events.core import completion_prompt, extraction_prompt, prompt
 
 
 class PromptContractTests(unittest.TestCase):
@@ -55,10 +55,40 @@ class PromptContractTests(unittest.TestCase):
             with self.subTest(obsolete=obsolete):
                 self.assertNotIn(obsolete,text)
 
+    def test_acceptance_confirmation_and_untrusted_output_commands(self):
+        self.clauses(disposition_prompt(),
+                     r'confirm.*(?:accept|decline).*appointment.*substantive.*leave',
+                     r'(?:meaning|semantics).*request.*not.*word.*confirm',
+                     r'(?:summary|mail).*(?:command|instruction).*(?:archive|leave).*untrusted.*ignore')
+
+    def test_classifier_directives_are_not_mailbox_requests(self):
+        self.clauses(disposition_prompt(),
+                     r'(?:ai|classifier|system).*(?:output|label).*(?:not|isn.t).*mailbox.*request',
+                     r'output.label command.*zero evidence.*archive')
+
+    def test_genuine_request_overrides_embedded_archive_command(self):
+        self.clauses(disposition_prompt(),
+                     r'genuine request.*not.*embedded commands',
+                     r'genuine request.*command.*output archive.*ignored.*genuine request decides.*leave',
+                     r'command to output archive is never a reason.*archive')
+
     def test_exact_date_components_and_relative_resolution(self):
         self.clauses(extraction_prompt(), r'(?:exact|preserve).*date tokens.*year',
                      r'(?:never|do not).*transpos.*day.*month',
                      r'(?:resolve|derive).*tomorrow.*sent_date')
+
+    def test_resolved_date_controls_offset_and_numeric_offsets_are_literal(self):
+        self.clauses(extraction_prompt(),
+                     r'resolve.*relative date.*before.*offset',
+                     r'offset.*resolved event date.*not.*sent_date',
+                     r'-05:00.*(?:remain|stay|stays).*?-05:00')
+
+    def test_warsaw_dst_boundary_and_repeated_confirmations(self):
+        self.clauses(extraction_prompt(),
+                     r'last sunday.*march.*\+02:00',
+                     r'day-only date.*takes the month of sent_date.*whatever the offset',
+                     r'one candidate.*each.*confirmation',
+                     r'never deduplicate.*candidates')
 
     def test_single_day_and_explicit_exclusive_end(self):
         from local_agentic_triage.events.core import validate_events
@@ -94,6 +124,40 @@ class PromptContractTests(unittest.TestCase):
                      r'existing over possible_duplicate over create',
                      r'empty evidence means create',
                      r'one strict json object.*only outcome')
+
+    def test_duplicate_equivalent_instants_and_uncertainty_fail_safe(self):
+        self.clauses(prompt(),
+                     r'convert both.*utc.*comparison only',
+                     r'same instant.*different offsets.*existing',
+                     r'create only.*(?:clearly|establish).*unrelated',
+                     r'(?:uncertain|unsure|ambiguous).*possible_duplicate.*not create')
+
+    def test_duplicate_offset_prohibition_does_not_bias_ambiguity_to_create(self):
+        # Live evidence: forbidding possible_duplicate for offset differences made the
+        # model return create for ambiguous identity and did not fix offset equivalence.
+        text=' '.join(prompt().lower().split())
+        self.assertNotIn('must not produce possible_duplicate',text)
+        self.assertNotIn('is not a nonzero start difference',text)
+
+    def test_completion_only_fills_null_fields(self):
+        self.clauses(completion_prompt(),
+                     r'only fill.*null',
+                     r'non.null.*immutable.*exactly',
+                     r'(?:never|do not).*paraphrase.*title',
+                     r'all.day.*yyyy-mm-dd.*(?:never|do not).*timestamp',
+                     r'null location.*remain null')
+
+    def test_completion_starts_from_exact_copy_and_unchanged_when_complete(self):
+        self.clauses(completion_prompt(),
+                     r'exact copy of the input event',
+                     r'change only fields that were null',
+                     r'location is never inferred.*null.*title names a place or\s+organization',
+                     r'no field needs completion.*input event unchanged')
+
+    def test_completion_never_derives_location(self):
+        self.clauses(completion_prompt(),
+                     r'location.*exactly equal.*input location',
+                     r'(?:never|do not).*derive.*location.*title.*event identity.*code.*organization.*date_note')
 
     def test_explicit_zone_digits_and_offset_are_preserved_before_default(self):
         self.clauses(extraction_prompt(),
