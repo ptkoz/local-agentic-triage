@@ -1,3 +1,4 @@
+import os
 import subprocess
 import tempfile
 import unittest
@@ -30,13 +31,15 @@ class VulcanTests(unittest.TestCase):
 
     def test_forward_runs_fixed_launcher_with_exact_bytes_and_logs_success(self):
         config = make_config(); raw = raw_from(b'noreply@vulcan.net.pl')
-        with tempfile.TemporaryDirectory() as home, patch.dict('os.environ', {'HOME': home}), \
+        with tempfile.TemporaryDirectory() as home, patch.dict('os.environ', {'HOME': home, 'PATH': '/usr/bin:/bin'}), \
              patch('subprocess.run', return_value=result()) as run, self.assertLogs('local_agentic_triage', level='INFO') as logs:
             forward('9', raw, config)
+            env = {**os.environ, 'PATH': str(Path(config.hermes).parent) + os.pathsep + '/usr/bin:/bin'}
         app = f'{home}/Library/Application Support/agentic-vulcan'
         run.assert_called_once_with(
             [f'{home}/.local/bin/agentic-vulcan', 'process', '--config', f'{app}/config.json', '--state', f'{app}/state'],
-            input=raw, shell=False, capture_output=True, timeout=config.timeout)
+            input=raw, shell=False, capture_output=True, timeout=config.timeout, env=env)
+        self.assertEqual(env['PATH'].split(os.pathsep)[0], str(Path(config.hermes).parent))
         self.assertEqual(logs.output, ['INFO:local_agentic_triage:agentic_vulcan_completed uid=9 result=delivered'])
 
     def test_forward_requires_exact_receipt_and_absorbs_failures(self):

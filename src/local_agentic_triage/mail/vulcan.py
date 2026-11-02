@@ -1,5 +1,6 @@
 """Hand raw eduVULCAN mail to the local agentic-vulcan; success is its exact delivery receipt."""
 import logging
+import os
 import subprocess
 from pathlib import Path
 
@@ -17,7 +18,8 @@ def forward(uid, raw, config):
         result = subprocess.run(
             [str(home / '.local/bin/agentic-vulcan'), 'process', '--config', str(app / 'config.json'),
              '--state', str(app / 'state')],
-            input=raw, shell=False, capture_output=True, timeout=config.timeout)
+            input=raw, shell=False, capture_output=True, timeout=config.timeout,
+            env={**os.environ, 'PATH': str(Path(config.hermes).parent) + os.pathsep + os.environ.get('PATH', '')})
         if result.returncode == 0:
             receipt = strict_json(result.stdout)
             if receipt == {'code': 'DELIVERED', 'deliveries': 1} and type(receipt['deliveries']) is int:
