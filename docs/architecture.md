@@ -1,7 +1,7 @@
 # Architecture and failure semantics
 
 - `common` owns configuration and locking.
-- `classifier` owns destination/summary validation and the fixed loopback DMR
+- `classifier` owns separate summary and destination validation and the fixed loopback DMR
   client.
 - `events` owns structural extraction, per-event duplicate checking, full event
   completion, final creation validation, and the deterministic Calendar adapter.
@@ -44,17 +44,17 @@ this simple Himalaya-only design; no direct IMAP/authentication path is added.
 MIME processing
 prefers nonattachment text/plain, falls back deterministically to HTML text,
 ignores script/style content, and skips attachment subtrees. Subject, sender,
-sent date and body go independently to the destination and extraction passes. The sent date is a
-separate JSON field, allowing relative dates to resolve against the message.
-Malformed MIME, oversized input, and invalid/truncated destination classification
-cause no disposition. Event processing is optional enrichment: its failures are logged
-and do not block mail disposition.
+sent date and body go independently to the summary, destination, and extraction
+passes. The sent date is a separate JSON field, allowing relative dates to resolve
+against the message. Malformed MIME, oversized input, and invalid/truncated summary
+or destination classification cause no disposition. Event processing is optional
+enrichment: its failures are logged and do not block mail disposition.
 
-## Four local-model stages
+## Five local-model stages
 
-All model operations use exactly docker.io/ai/qwen35-mail:16k at
-http://127.0.0.1:12434/engines/v1/chat/completions, temperature 0,
-`chat_template_kwargs.enable_thinking=false`, and a 2048-token output budget.
+All model operations use exactly docker.io/ai/ministral3-mail-8b:16k at
+http://127.0.0.1:12434/engines/v1/chat/completions, temperature 0, and a
+2048-token output budget.
 The shared transport disables proxies, rejects redirects, uses a timeout of at
 least 300 seconds, strictly decodes the API envelope and model content, rejects
 duplicate JSON keys and non-finite constants, and requires `finish_reason=stop`.
@@ -63,19 +63,24 @@ fits the model's token limit is read and handled in full. Each operation has a
 separate packaged operational prompt and closed strict JSON Schema. No model has
 tools or write authority.
 
-The four entries below are logical stages, not a fixed four-request budget.
-Destination and extraction run once per mail. Duplicate checking and completion
-run separately for each extracted event, so a mail containing N events can make
-2 + N duplicate requests plus as many completion requests as remain eligible for
-creation.
+The five entries below are logical stages, not a fixed five-request budget.
+Summary, destination, and extraction run once per mail. Duplicate checking and
+completion run separately for each extracted event, so a mail containing N
+events can make 3 + N duplicate requests plus as many completion requests as
+remain eligible for creation.
 
-1. **Destination and summary.** The first request receives bounded mail JSON and
-   returns only destination and summary. Leave requires a null summary; archive
-   requires a factual Polish summary regardless of input language. Structural
-   and destination/summary coupling validation remain fatal and retryable because
-   disposition and reporting depend on this result.
+1. **Summary generation.** The first request receives bounded mail JSON and
+   returns one factual Polish summary regardless of input language. Structural
+   summary validation remains fatal and retryable because archive reporting may
+   depend on this result.
 
-2. **Event extraction.** The second request independently receives the same
+2. **Destination classification.** The second request receives separate
+   `summary` and unchanged bounded `mail` fields and returns only `leave` or
+   `archive`. Leave discards the generated summary from the final disposition;
+   archive retains it. Structural destination validation remains fatal and
+   retryable because disposition depends on this result.
+
+3. **Event extraction.** The third request independently receives the same
    bounded mail JSON and returns an `events` array. Every event object has the
    structurally defined fields `title`, `start`, `end`, `date_note`, and
    `location`; values may be null where permitted by the schema. `location` is
@@ -102,7 +107,7 @@ creation.
    start gate is preserved exactly and all five fields are forwarded to duplicate
    checking.
 
-3. **Per-event duplicate checking.** Each extracted event that passed the start
+4. **Per-event duplicate checking.** Each extracted event that passed the start
    gate gets its own model request before any missing value is guessed. Python
    uses that already validated, unchanged start to fetch the corresponding
    Calendar window. The request then contains the complete extracted event
@@ -121,7 +126,7 @@ creation.
    `possible_duplicate` end processing for that event. Only `create` authorizes
    the completion stage. Duplicate checking never writes to Calendar.
 
-4. **Per-event completion.** Each event authorized as `create` is sent unchanged
+5. **Per-event completion.** Each event authorized as `create` is sent unchanged
    in a separate request to the completion model. Python does not first validate
    its remaining fields, date syntax, start date, completeness, or temporal
    eligibility. The completion model receives all five extracted fields and

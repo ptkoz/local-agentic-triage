@@ -1,14 +1,13 @@
 {
   "type": "json_schema",
   "json_schema": {
-    "name": "mail_classification",
+    "name": "mail_destination",
     "strict": true,
     "schema": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "destination",
-        "summary"
+        "destination"
       ],
       "properties": {
         "destination": {
@@ -16,12 +15,6 @@
           "enum": [
             "leave",
             "archive"
-          ]
-        },
-        "summary": {
-          "type": [
-            "string",
-            "null"
           ]
         }
       }

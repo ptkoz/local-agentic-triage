@@ -1,0 +1,19 @@
+{
+  "type": "json_schema",
+  "json_schema": {
+    "name": "mail_summary",
+    "strict": true,
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "summary"
+      ],
+      "properties": {
+        "summary": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

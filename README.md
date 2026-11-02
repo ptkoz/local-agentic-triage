@@ -1,10 +1,10 @@
 # local-agentic-triage
 
 Local, standard-library-only email triage for Python 3.14. Himalaya v2.1.0 is
-the sole mail boundary. One fixed loopback Qwen model performs four separate passes with closed strict
-JSON Schemas: destination/summary, independent sparse event extraction, duplicate
-checking against nearby Calendar rows, and missing timed-end completion only
-after no_match. Guessed values never influence duplicate checking. A deterministic
+the sole mail boundary. One fixed loopback Ministral model performs five separate passes with closed strict
+JSON Schemas: summary generation, destination classification, independent sparse event extraction,
+duplicate checking against nearby Calendar rows, and event completion only
+after `create`. Guessed values never influence duplicate checking. A deterministic
 single-calendar adapter creates and verifies events, and Hermes sends immediate archive rows and a daily
 Discord summary without participating in classification. Destination failures are
 fatal/retryable; extraction and later event failures never block leave/archive.

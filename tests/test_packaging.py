@@ -20,12 +20,12 @@ class PackagingTests(unittest.TestCase):
             self.assertEqual(result.returncode,0,result.stderr)
             with zipfile.ZipFile(archive) as z:
                 self.assertIn('local_agentic_triage/classifier/prompt.md',z.namelist())
-                for prompt in ('classifier/destination.md','events/extraction.md','events/duplicate.md','events/completion.md','classifier/destination.json','events/extraction.json','events/duplicate.json','events/completion.json'):
+                for prompt in ('classifier/destination.md','classifier/summary.md','events/extraction.md','events/duplicate.md','events/completion.md','classifier/destination.json','classifier/summary.json','events/extraction.json','events/duplicate.json','events/completion.json'):
                     self.assertIn('local_agentic_triage/'+prompt,z.namelist())
                 self.assertFalse(any('__pycache__' in n for n in z.namelist()))
             result=subprocess.run([sys.executable,str(archive),'--help'],capture_output=True,text=True)
             self.assertEqual(result.returncode,0,result.stderr)
-            code="import sys; sys.path.insert(0,sys.argv[1]); from local_agentic_triage.classifier.core import CLASSIFICATION_SCHEMA; from local_agentic_triage.events.core import EXTRACTION_SCHEMA,DUPLICATE_SCHEMA,COMPLETION_SCHEMA; assert all(s['json_schema']['strict'] for s in (CLASSIFICATION_SCHEMA,EXTRACTION_SCHEMA,DUPLICATE_SCHEMA,COMPLETION_SCHEMA))"
+            code="import sys; sys.path.insert(0,sys.argv[1]); from local_agentic_triage.classifier.core import CLASSIFICATION_SCHEMA,SUMMARY_SCHEMA; from local_agentic_triage.events.core import EXTRACTION_SCHEMA,DUPLICATE_SCHEMA,COMPLETION_SCHEMA; assert all(s['json_schema']['strict'] for s in (CLASSIFICATION_SCHEMA,SUMMARY_SCHEMA,EXTRACTION_SCHEMA,DUPLICATE_SCHEMA,COMPLETION_SCHEMA))"
             result=subprocess.run([sys.executable,'-I','-c',code,str(archive)],capture_output=True,text=True,timeout=10)
             self.assertEqual(result.returncode,0,result.stderr)
             config=Path(d)/'config.toml'; config.write_text(f'database="{d}/db"\npoll_lock="{d}/poll.lock"\nreport_lock="{d}/report.lock"\n')
@@ -74,7 +74,18 @@ class PackagingTests(unittest.TestCase):
     def test_frozen_resources_match_reviewed_baseline(self):
         import hashlib
         from importlib.resources import files
-        expected={'classifier/destination.json': '5bad95d48a6928f51935d31be4377b6afae3e1ea981589676c87a4c55e9d399a', 'classifier/destination.md': '7b660b6c806f1f7b3c1c3ba12f165a485014a65e258386acf6ef63ca66f5a273', 'classifier/prompt.md': '12a7044a41d3acc9b173ad69a71a55f3e8783399eaee291057460a1075aecf6c', 'events/completion.json': '04110de9593868434971c4490d7b877202e055b5bbd25783afe7d9b5f0a4f85f', 'events/completion.md': 'eb9582c9f7409a5e08bc3efa3aded76cdd9f1b4c78dcbc30983f8f149831bfc9', 'events/duplicate.json': 'bd7f0ec4d72545eab7d4af81f7e548bcff334475b6fe9331645c85c9313173c3', 'events/duplicate.md': '54cf220b88c9eb23bedc0ed36926301024654e22bbf03188ca12b59ba3f26305', 'events/extraction.json': 'a9160a341ed35135f0331dcc902364e1de8324e2a1a5658128505c9c31c07644', 'events/extraction.md': '8585e5d322f78ee0385ee9c62d55d7bca0b70ebcf61d8475be03c1271912709c'}
+        expected={
+            'classifier/destination.json': '02cdef55c33c3cad5a51455b47ba4068242c5c81547d9a609fc871ca22d037c6',
+            'classifier/destination.md': '5f8f907591b6b5d3f09c305d37a142949a47910066c94e6f0fe10ee212bdbbf8',
+            'classifier/prompt.md': '12a7044a41d3acc9b173ad69a71a55f3e8783399eaee291057460a1075aecf6c',
+            'classifier/summary.json': '7778048986365c1f57273fbef05f9ff773310bac8ccc8f371357c5d8c392b06f',
+            'classifier/summary.md': 'a16a8dfffbcc0852b41a9e3b00b2447622128568a2e13cc51cc1fd5030ceb233',
+            'events/completion.json': '04110de9593868434971c4490d7b877202e055b5bbd25783afe7d9b5f0a4f85f',
+            'events/completion.md': 'eb9582c9f7409a5e08bc3efa3aded76cdd9f1b4c78dcbc30983f8f149831bfc9',
+            'events/duplicate.json': 'bd7f0ec4d72545eab7d4af81f7e548bcff334475b6fe9331645c85c9313173c3',
+            'events/duplicate.md': '54cf220b88c9eb23bedc0ed36926301024654e22bbf03188ca12b59ba3f26305',
+            'events/extraction.json': 'a9160a341ed35135f0331dcc902364e1de8324e2a1a5658128505c9c31c07644',
+            'events/extraction.md': '8585e5d322f78ee0385ee9c62d55d7bca0b70ebcf61d8475be03c1271912709c'}
         for name,digest in expected.items():
             with self.subTest(resource=name):
                 self.assertEqual(hashlib.sha256(files('local_agentic_triage').joinpath(name).read_bytes()).hexdigest(),digest)
