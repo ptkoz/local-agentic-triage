@@ -1,4 +1,3 @@
-import json
 import subprocess
 import unittest
 from unittest.mock import patch
@@ -27,23 +26,6 @@ class HimalayaTests(unittest.TestCase):
             self.assertEqual(calls[-1].args[0][-7:],['message','move','--from','Inbox "Two"','--to','Archive \\ Two','9'])
             for call in calls:
                 self.assertIn('account-two',call.args[0]); self.assertFalse(call.kwargs['shell']); self.assertGreater(call.kwargs['timeout'],0)
-    def test_vulcan_uids_use_one_bounded_envelope_lookup_and_exact_email(self):
-        senders=[('9','NoReply@VULCAN.NET.PL'),('12','noreply@vulcan.net.pl.evil.invalid'),('13','xnoreply@vulcan.net.pl'),
-                 ('14','noreply@vulcan.net.pl','other@example.invalid'),('15',),('99','noreply@vulcan.net.pl')]
-        listing=json.dumps({'envelopes':[{'id':uid,'from':[{'email':email} for email in emails]} for uid,*emails in senders]}).encode()
-        with patch('subprocess.run',side_effect=[done(SELECT),done(listing)]) as run:
-            box=Mailbox.connect(make_config(inbox='Inbox "Two"'))
-            self.assertEqual(box.vulcan_uids(['9','12','13','14','15']),{'9'})
-            self.assertEqual(run.call_count,2)
-            argv=run.call_args.args[0]
-            self.assertEqual(argv[argv.index('--json'):],['--json','envelope','search','-m','Inbox "Two"','--page-size','5',
-                                                         'from','noreply@vulcan.net.pl','and','not','flag','flagged'])
-    def test_vulcan_uids_without_candidates_runs_nothing_and_rejects_bad_listing(self):
-        with patch('subprocess.run',side_effect=[done(SELECT)]) as run:
-            box=Mailbox.connect(make_config()); self.assertEqual(box.vulcan_uids([]),set()); self.assertEqual(run.call_count,1)
-        for output in (b'not json',b'{"envelopes":[{"id":"x","from":[{"email":"noreply@vulcan.net.pl"}]}]}',b'{"envelopes":[{"id":"9","from":null}]}'):
-            with patch('subprocess.run',side_effect=[done(SELECT),done(output)]),self.assertRaisesRegex(ValueError,'himalaya_result_invalid'):
-                Mailbox.connect(make_config()).vulcan_uids(['9'])
     def test_reject_protocol_failure_and_invalid_uids(self):
         for output in (SELECT.replace(b'77',b'0'),SELECT.replace(b'a1 OK',b'a1 NO'),SELECT+b'a1 OK duplicate\r\n'):
             with patch('subprocess.run',return_value=done(output)),self.assertRaises((ValueError,RuntimeError)):

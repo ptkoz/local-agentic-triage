@@ -307,13 +307,12 @@ scheduled run may already have delivered and acknowledged it.
 
 ## eduVULCAN handoff
 
-Once per poll, one `himalaya envelope search` (`--page-size` = candidate count,
-`from noreply@vulcan.net.pl and not flag flagged`, JSON) yields the unflagged
-candidates whose envelope From email equals `noreply@vulcan.net.pl`
-case-insensitively. Raw mail is never parsed for the sender. For those UIDs the
-poll runs `agentic-vulcan process` with the exact raw bytes on stdin (`shell=False`,
-configured timeout) before MIME decoding. Success is exit status 0 and stdout
-exactly `{"code":"DELIVERED","deliveries":1}`. Any failure, or a failed lookup,
-logs a fixed `agentic_vulcan_failed` line and normal triage continues unchanged.
-There is no queue, deduplication, or retry state, so a later pipeline failure that
-re-reads the mail can deliver it again.
+Right after `validate_disposition(classifier(mail))`, the poll compares the parsed
+`mail.sender` (lower-cased, no other normalization) to `noreply@vulcan.net.pl` and, on
+equality, calls `mail.vulcan.forward`. It runs `agentic-vulcan process` with the exact
+raw bytes on stdin (`shell=False`, configured timeout), synchronously. Success is exit
+status 0 and stdout exactly `{"code":"DELIVERED","deliveries":1}`, logged as
+`agentic_vulcan_completed uid=... result=delivered`. Any other outcome, including any
+exception, is absorbed by the helper and logged as `agentic_vulcan_failed uid=...
+result=failed`; triage continues unchanged. There is no queue, deduplication, or retry
+state, so a later pipeline failure that re-reads the mail can deliver it again.

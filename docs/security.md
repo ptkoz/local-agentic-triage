@@ -68,6 +68,6 @@ compile and offline smoke tests are sufficient for local review. Deployment,
 configuration review and service activation are a separate parent-agent step.
 
 The eduVULCAN handoff sends raw mail only to the fixed local `agentic-vulcan`
-launcher. The envelope sender match is routing, not authentication. Child output,
+launcher. The parsed `From` match is routing, not authentication. Child output,
 mail content, and exception text never enter triage logs; tests mock the
 boundary and never run agentic-vulcan.

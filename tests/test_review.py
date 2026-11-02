@@ -59,7 +59,7 @@ class ReviewTests(unittest.TestCase):
 
     def test_reconcile_crash_after_move(self):
         with tempfile.TemporaryDirectory() as d:
-            store=Store(Path(d)/'db'); box=Mock(validity='77'); box.vulcan_uids.return_value=set()
+            store=Store(Path(d)/'db'); box=Mock(validity='77')
             box.source_key.side_effect=lambda uid: 'imap:test-account:Test%20Inbox:77:'+uid
             box.candidates.return_value=['9']; box.raw.return_value=b'Date: Fri, 31 Oct 2026 01:27:00 +0100\nFrom: fake\n\nbody'
             present={'9'}
@@ -187,7 +187,7 @@ class ReviewTests(unittest.TestCase):
             self.assertTrue(Mailbox(make_config()).exists('9'))
             self.assertNotIn(b'HermesLeave',run.call_args.kwargs['input'])
         with tempfile.TemporaryDirectory() as d:
-            store=Store(Path(d)/'db'); box=Mock(); box.candidates.return_value=[]; box.vulcan_uids.return_value=set()
+            store=Store(Path(d)/'db'); box=Mock(); box.candidates.return_value=[]
             box.source_key.side_effect=lambda uid:'imap:test-account:Test%20Inbox:77:'+uid; box.all_uids.return_value=set()
             keys=['imap:test-account:Test%20Inbox:77:9','imap:test-account:Test%20Inbox:78:9','imap:other:Test%20Inbox:77:9','imap:test-account:Test%20Archive:77:9']
             for key in keys: store.prepare(key,'synthetic','synthetic',sent_at='2026-10-31T01:27:00+01:00')
@@ -197,7 +197,7 @@ class ReviewTests(unittest.TestCase):
 
     def test_reconciliation_lists_inbox_once(self):
         with tempfile.TemporaryDirectory() as d:
-            store=Store(Path(d)/'db'); box=Mock(validity='77'); box.vulcan_uids.return_value=set()
+            store=Store(Path(d)/'db'); box=Mock(validity='77')
             box.candidates.return_value=[]
             box.source_key.side_effect=lambda uid:'imap:test-account:Test%20Inbox:77:'+uid
             box.all_uids.return_value={'9','10'}

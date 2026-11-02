@@ -68,7 +68,7 @@ class PipelineTests(unittest.TestCase):
     def test_immediate_delivery_rechecks_acknowledgement_after_shared_lock(self):
         with tempfile.TemporaryDirectory() as d:
             store=Store(Path(d)/'db'); key='account:inbox:77:9'
-            box=Mock(validity='77'); box.source_key.return_value=key; box.vulcan_uids.return_value=set()
+            box=Mock(validity='77'); box.source_key.return_value=key
             box.candidates.return_value=['9']; box.all_uids.return_value={'9'}
             box.raw.return_value=b'Date: Sat, 31 Oct 2026 01:27:00 +0100\nFrom: sender@example.invalid\n\nbody'
             classifier=Mock(return_value={'destination':'archive','summary':'summary'})
@@ -113,7 +113,7 @@ class PipelineTests(unittest.TestCase):
     def test_archive_without_valid_header_date_uses_imap_internal_date(self):
         for raw in (b'From: sender\n\nbody',b'Date: not-a-date\nFrom: sender\n\nbody',b'Date: Fri, 31 Oct 2026 01:27:00\nFrom: sender\n\nbody'):
             with tempfile.TemporaryDirectory() as d:
-                store=Store(Path(d)/'db'); box=Mock(); box.vulcan_uids.return_value=set()
+                store=Store(Path(d)/'db'); box=Mock()
                 box.candidates.return_value=['9']; box.source_key.return_value='key'; box.raw.return_value=raw; box.internal_date.return_value='2026-10-31T01:27:00+01:00'
                 classifier=Mock(return_value=self.disposition(destination='archive',summary='summary',extracted_events=[{'title':'X','start':None,'end':None,'date_note':None,'location':None}])); events=Mock(return_value=self.event_result({'index':0,'outcome':'skipped','reason':'missing_date'}))
                 self.assertEqual(poll(box,store,make_config(),classifier,events),0)
@@ -270,7 +270,7 @@ class PipelineTests(unittest.TestCase):
 
     def test_archive_retry_does_not_reclassify_or_rerun_events(self):
         with tempfile.TemporaryDirectory() as d:
-            store=Store(Path(d)/'db'); box=Mock(); box.candidates.return_value=['9']; box.source_key.return_value='key'; box.raw.return_value=b'Date: Fri, 31 Oct 2026 01:27:00 +0100\nFrom: original\n\nbody'; box.vulcan_uids.return_value=set()
+            store=Store(Path(d)/'db'); box=Mock(); box.candidates.return_value=['9']; box.source_key.return_value='key'; box.raw.return_value=b'Date: Fri, 31 Oct 2026 01:27:00 +0100\nFrom: original\n\nbody'
             classify=Mock(return_value=self.disposition(destination='archive',summary='Oryginalny zakup.',extracted_events=[{'title':'X','start':None,'end':None,'date_note':None,'location':None}])); events=Mock(return_value=self.event_result({'index':0,'outcome':'skipped','reason':'missing_date'}))
             box.archive.side_effect=RuntimeError('PRIVATE ERROR')
             with self.assertLogs('local_agentic_triage',level='ERROR') as logs:
@@ -285,7 +285,7 @@ class PipelineTests(unittest.TestCase):
             store.close()
     def test_leave_no_row_and_event_failure_does_not_block(self):
         with tempfile.TemporaryDirectory() as d:
-            store=Store(Path(d)/'db'); box=Mock(); box.candidates.return_value=['9']; box.source_key.return_value='key'; box.raw.return_value=b'\nbody'; box.internal_date.return_value='2026-10-31T01:27:00+01:00'; box.vulcan_uids.return_value=set()
+            store=Store(Path(d)/'db'); box=Mock(); box.candidates.return_value=['9']; box.source_key.return_value='key'; box.raw.return_value=b'\nbody'; box.internal_date.return_value='2026-10-31T01:27:00+01:00'
             classifier=Mock(return_value=self.disposition(destination='leave',summary=None,extracted_events=[])); events=Mock(return_value=self.event_result())
             self.assertEqual(poll(box,store,make_config(),classifier,events),0)
             box.leave.assert_called_once_with('9'); self.assertIsNone(store.prepared('key')); box.archive.assert_not_called()
@@ -299,7 +299,7 @@ class PipelineTests(unittest.TestCase):
     def test_prepared_failure_then_independent_candidate_and_ready_retry(self):
         with tempfile.TemporaryDirectory() as d:
             store=Store(Path(d)/'db'); store.prepare('old','original','frozen',sent_at='2026-10-31T01:27:00+01:00')
-            box=Mock(); box.candidates.return_value=['9','12']; box.source_key.side_effect=lambda uid: 'old' if uid=='9' else 'new'; box.vulcan_uids.return_value=set()
+            box=Mock(); box.candidates.return_value=['9','12']; box.source_key.side_effect=lambda uid: 'old' if uid=='9' else 'new'
             box.archive.side_effect=lambda uid: (_ for _ in ()).throw(RuntimeError('private')) if uid=='9' else None
             box.raw.return_value=b'Date: Fri, 31 Oct 2026 01:27:00 +0100\nFrom: synthetic\n\nbody'
             classifier=Mock(return_value=self.disposition(destination='archive',summary='new summary',extracted_events=[])); events=Mock(return_value=self.event_result())

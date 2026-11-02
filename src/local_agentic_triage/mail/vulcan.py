@@ -1,15 +1,19 @@
-"""Hand raw mail to the local agentic-vulcan; success is its exact delivery receipt."""
+"""Hand raw eduVULCAN mail to the local agentic-vulcan; success is its exact delivery receipt."""
+import logging
 import subprocess
 from pathlib import Path
 
 from local_agentic_triage.classifier.core import strict_json
-from local_agentic_triage.common.diagnostics import CommandError
+
+VULCAN_SENDER = 'noreply@vulcan.net.pl'
+log = logging.getLogger('local_agentic_triage')
 
 
-def forward(raw, config):
-    home = Path.home()
-    app = home / 'Library/Application Support/agentic-vulcan'
+def forward(uid, raw, config):
+    """Best effort: log a fixed result and never raise."""
     try:
+        home = Path.home()
+        app = home / 'Library/Application Support/agentic-vulcan'
         result = subprocess.run(
             [str(home / '.local/bin/agentic-vulcan'), 'process', '--config', str(app / 'config.json'),
              '--state', str(app / 'state')],
@@ -17,7 +21,8 @@ def forward(raw, config):
         if result.returncode == 0:
             receipt = strict_json(result.stdout)
             if receipt == {'code': 'DELIVERED', 'deliveries': 1} and type(receipt['deliveries']) is int:
+                log.info('agentic_vulcan_completed uid=%s result=delivered', uid)
                 return
-    except (OSError, subprocess.SubprocessError, ValueError):
+    except Exception:
         pass
-    raise CommandError('agentic_vulcan_failed')
+    log.error('agentic_vulcan_failed uid=%s result=failed', uid)

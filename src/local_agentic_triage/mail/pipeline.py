@@ -4,7 +4,7 @@ from dataclasses import replace
 from pathlib import Path
 from local_agentic_triage.common.lock import Lock
 from local_agentic_triage.mail.mime import parse
-from local_agentic_triage.mail.vulcan import forward
+from local_agentic_triage.mail.vulcan import VULCAN_SENDER, forward
 from local_agentic_triage.mail.imap import uid_value
 from local_agentic_triage.classifier.core import classify, validate_disposition, bound_mail
 from local_agentic_triage.events.core import process, parse_results, extract
@@ -45,8 +45,6 @@ def poll(mailbox,store,config,classifier=classify,event_processor=process, *, ex
     except Exception as exc:
         log.error('mail_candidates_failed error=%s%s',error_code(exc),error_suffix(exc)); return 1
     log.info('mail_candidates_discovered count=%d',len(candidates))
-    try: vulcan=set(mailbox.vulcan_uids(candidates))
-    except Exception: vulcan=set(); log.error('agentic_vulcan_failed result=lookup')
     def report_ready(key):
         if runner is None: return
         try:
@@ -103,9 +101,6 @@ def poll(mailbox,store,config,classifier=classify,event_processor=process, *, ex
                 continue
             stage='read'
             raw=mailbox.raw(uid)
-            if uid in vulcan:
-                try: forward(raw,config); log.info('agentic_vulcan_completed uid=%s result=delivered',uid)
-                except Exception: log.error('agentic_vulcan_failed uid=%s result=failed',uid)
             mail=parse(raw,config.max_mail_bytes)
             if not mail.sent_date:
                 mail=replace(mail,sent_date=mailbox.internal_date(uid))
@@ -115,6 +110,7 @@ def poll(mailbox,store,config,classifier=classify,event_processor=process, *, ex
                 log.info('mail_content_truncated uid=%s fields=%s',uid,','.join(truncated))
             log.info('mail_item_action item=%d uid=%s stage=classify',index,uid)
             result=validate_disposition(classifier(mail))
+            if mail.sender.lower()==VULCAN_SENDER: forward(uid,raw,config)
 
             if result['destination']=='archive':
                 stage='report_row'
