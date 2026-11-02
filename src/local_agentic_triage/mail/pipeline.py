@@ -4,6 +4,7 @@ from dataclasses import replace
 from pathlib import Path
 from local_agentic_triage.common.lock import Lock
 from local_agentic_triage.mail.mime import parse
+from local_agentic_triage.mail.vulcan import VULCAN_SENDER, forward
 from local_agentic_triage.mail.imap import uid_value
 from local_agentic_triage.classifier.core import classify, validate_disposition, bound_mail
 from local_agentic_triage.events.core import process, parse_results, extract
@@ -99,7 +100,8 @@ def poll(mailbox,store,config,classifier=classify,event_processor=process, *, ex
                 completed+=1
                 continue
             stage='read'
-            mail=parse(mailbox.raw(uid),config.max_mail_bytes)
+            raw=mailbox.raw(uid)
+            mail=parse(raw,config.max_mail_bytes)
             if not mail.sent_date:
                 mail=replace(mail,sent_date=mailbox.internal_date(uid))
             stage='classify'
@@ -108,6 +110,7 @@ def poll(mailbox,store,config,classifier=classify,event_processor=process, *, ex
                 log.info('mail_content_truncated uid=%s fields=%s',uid,','.join(truncated))
             log.info('mail_item_action item=%d uid=%s stage=classify',index,uid)
             result=validate_disposition(classifier(mail))
+            if mail.sender.lower()==VULCAN_SENDER: forward(uid,raw,config)
 
             if result['destination']=='archive':
                 stage='report_row'

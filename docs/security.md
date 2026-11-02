@@ -66,3 +66,8 @@ direct IMAP clients remain outside the boundary.
 No live mailbox, DMR, calendar or Discord operations belong in tests. Build,
 compile and offline smoke tests are sufficient for local review. Deployment,
 configuration review and service activation are a separate parent-agent step.
+
+The eduVULCAN handoff sends raw mail only to the fixed local `agentic-vulcan`
+launcher. The parsed `From` match is routing, not authentication. Child output,
+mail content, and exception text never enter triage logs; tests mock the
+boundary and never run agentic-vulcan.

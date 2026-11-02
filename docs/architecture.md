@@ -304,3 +304,15 @@ scheduled run holds it from pending-row selection through summary persistence, s
 an immediate report cannot appear between the count cutoff and mention. An
 immediate sender rechecks `reported_at` after acquiring the lock, because a waiting
 scheduled run may already have delivered and acknowledged it.
+
+## eduVULCAN handoff
+
+Right after `validate_disposition(classifier(mail))`, the poll compares the parsed
+`mail.sender` (lower-cased, no other normalization) to `noreply@vulcan.net.pl` and, on
+equality, calls `mail.vulcan.forward`. It runs `agentic-vulcan process` with the exact
+raw bytes on stdin (`shell=False`, configured timeout), synchronously. Success is exit
+status 0 and stdout exactly `{"code":"DELIVERED","deliveries":1}`, logged as
+`agentic_vulcan_completed uid=... result=delivered`. Any other outcome, including any
+exception, is absorbed by the helper and logged as `agentic_vulcan_failed uid=...
+result=failed`; triage continues unchanged. There is no queue, deduplication, or retry
+state, so a later pipeline failure that re-reads the mail can deliver it again.

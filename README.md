@@ -149,3 +149,14 @@ semantics, [security](docs/security.md) for privacy boundaries, and the
    Desktop and macOS Calendar/TCC access. To stop production, use `launchctl
    bootout gui/$(id -u) <plist-path>` for each plist. Runtime logs are under
    `~/Library/Logs/local-agentic-triage/`.
+
+## eduVULCAN forwarding
+
+Mail whose parsed `From` header equals `noreply@vulcan.net.pl` (case-insensitive,
+no display-name parsing) is piped as raw bytes to `~/.local/bin/agentic-vulcan process
+--config ~/Library/Application Support/agentic-vulcan/config.json --state
+~/Library/Application Support/agentic-vulcan/state` right after classification. The
+paths are fixed and resolved from `$HOME`; there is no configuration. Forwarding
+is best effort: the outcome is logged as a fixed `agentic_vulcan_completed` or
+`agentic_vulcan_failed` line, failures are not retried, and triage is never blocked.
+`mail diagnose` never forwards.
