@@ -27,8 +27,8 @@ class ReportTests(unittest.TestCase):
 
     def test_summary_and_one_record_format(self):
         start=datetime(2026,11,8,16,44,tzinfo=UTC); end=datetime(2026,11,9,17,0,tzinfo=UTC)
-        self.assertEqual(header('2',9),'<@2>, powyżej znajduje się informacja o **9 wiadomościach** przeniesionych do Archiwum od poprzedniego podsumowania:')
-        self.assertEqual(header('2',1),'<@2>, powyżej znajduje się informacja o **1 wiadomości** przeniesionej do Archiwum od poprzedniego podsumowania:')
+        self.assertEqual(header('2',9),'<@2>, powyżej znajduje się informacja o **9 wiadomościach** przeniesionych do Archiwum od poprzedniego podsumowania.')
+        self.assertEqual(header('2',1),'<@2>, powyżej znajduje się informacja o **1 wiadomości** przeniesionej do Archiwum od poprzedniego podsumowania.')
         row={'source_key':'key','created_at':'2099-01-01T00:00:00+00:00','sent_at':'2026-10-31T00:27:00+00:00','sender':'Example Sender <sender@example.invalid>','summary':'Nadawca przesłał syntetyczne powiadomienie.'}
         self.assertEqual(record_message(row,1900),'**Archiwum**: Od **Example Sender ‹sender@example.invalid›** z dnia 31 paź, 01:27\n> Nadawca przesłał syntetyczne powiadomienie.')
         with self.assertRaises(ValueError): record_message(row|{'summary':'x'*2000},1900)
@@ -140,13 +140,13 @@ class ReportTests(unittest.TestCase):
             self.assertEqual(store.pending(),[])
             self.assertIsNone(store.current_report_window()); store.close()
 
-    def test_empty_report_summary_with_mention_advances_boundary(self):
+    def test_empty_report_summary_without_mention_advances_boundary(self):
         with tempfile.TemporaryDirectory() as d:
             store=Store(Path(d)/'db'); runner=Mock(return_value=subprocess.CompletedProcess([],0,'',''))
             with patch('local_agentic_triage.reporting.store.now',return_value='2026-11-10T17:00:01+00:00'):
                 send(store,make_config(),datetime(2026,11,10,17,0,tzinfo=UTC),runner=runner)
-            self.assertEqual(runner.call_args.kwargs['input'],'<@2>, powyżej znajduje się informacja o **0 wiadomościach** przeniesionych do Archiwum od poprzedniego podsumowania:')
-            self.assertIn('<@2>',runner.call_args.kwargs['input'])
+            self.assertEqual(runner.call_args.kwargs['input'],'Od poprzedniego podsumowania nie przeniesiono żadnych wiadomości do Archiwum.')
+            self.assertNotIn('<@2>',runner.call_args.kwargs['input'])
             store.close()
 
     def test_subprocess_errors_are_safe_and_returncodes_bounded(self):

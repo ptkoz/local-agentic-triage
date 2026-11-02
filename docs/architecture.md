@@ -253,13 +253,15 @@ Ready, unreported rows sort by created_at then source_key. Scheduled reporting
 first sends every pending row, including backlog older than the scheduled run
 window, acknowledging each successful delivery immediately with its actual
 delivery time. There is no introduction. After all pending rows succeed, it
-captures a current summary cutoff and sends exactly one final mention. The count
+captures a current summary cutoff and sends exactly one final summary. The count
 uses delivery acknowledgements (`reported_at`), not archive readiness: it includes
 rows in `(previous successful summary cutoff, current cutoff]`. When no successful
 summary cutoff exists, the first summary includes every acknowledged row through
 the current cutoff. Undelivered rows are excluded. For example:
-`<@USER_ID>, powyżej znajduje się informacja o **9 wiadomościach** przeniesionych do Archiwum od poprzedniego podsumowania:`.
-The singular uses `1 wiadomości` and `przeniesionej`.
+`<@USER_ID>, powyżej znajduje się informacja o **9 wiadomościach** przeniesionych do Archiwum od poprzedniego podsumowania.`
+The singular uses `1 wiadomości` and `przeniesionej`. A zero count does not mention
+the user and renders `Od poprzedniego podsumowania nie przeniesiono żadnych
+wiadomości do Archiwum.`
 
 The scheduled run window remains independently frozen in `report_state`, and
 `report_meta.last_end_at` remains its completed boundary. The actual successful
