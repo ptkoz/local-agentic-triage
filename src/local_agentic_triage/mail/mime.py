@@ -29,9 +29,9 @@ class Mail:
 def vulcan_sender(raw):
     """Match the same deliberately narrow From grammar as agentic-vulcan."""
     if not isinstance(raw,bytes): return False
-    boundary=raw.find(b'\r\n\r\n')
-    if boundary<0: boundary=raw.find(b'\n\n')
-    if boundary<0: return False
+    found=[i for i in (raw.find(b'\r\n\r\n'),raw.find(b'\n\n')) if i>=0]
+    if not found: return False
+    boundary=min(found)
     header=raw[:boundary]
     if re.search(br'\r(?!\n)',header): return False
     normalized=header.replace(b'\r\n',b'\n')

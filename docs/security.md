@@ -71,8 +71,9 @@ The eduVULCAN handoff sends original raw mail only to the configured absolute
 agentic-vulcan launcher. The From match is routing, not sender authentication;
 mail delivery authentication remains outside this integration. No child output,
 mail content, configured paths, or exception text enters triage logs. Only a strict
-success receipt is accepted; nonzero status, invalid receipt, timeout, and OS errors
-become the fixed `agentic_vulcan_failed` code. Config validation checks launcher
+success receipt is counted as delivered; nonzero status, invalid receipt, timeout, and
+OS errors become the fixed `agentic_vulcan_failed uid=<uid> result=failed` log line
+and never block ordinary triage. Config validation checks launcher
 executability and config-file existence without opening private agentic-vulcan
 state or executing the launcher. Tests mock this boundary and never invoke live
 agentic-vulcan or eduVULCAN.

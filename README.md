@@ -156,8 +156,10 @@ semantics, [security](docs/security.md) for privacy boundaries, and the
 
 Normal triage also forwards notifications with exactly one valid From mailbox
 matching `noreply@vulcan.net.pl` case-insensitively to agentic-vulcan before
-classification. Both pipelines run; a forwarding failure leaves the mail eligible
-for retry and prevents classification, events, and disposition for that attempt.
+classification. This is a best-effort side quest: the message always continues
+through the normal pipeline, and a forwarding failure never blocks or retries it.
+The result is logged as fixed `agentic_vulcan_completed uid=<uid> result=delivered`
+or `agentic_vulcan_failed uid=<uid> result=failed`.
 `mail diagnose` remains read/classification only and never forwards.
 
 Set `agentic_vulcan` to the production launcher at `~/.local/bin/agentic-vulcan`,
@@ -169,10 +171,11 @@ version without this integration must add all three keys before installing or
 activating the new zipapp.
 `config validate` checks the launcher executable and config file without running
 it or reading state contents. Configure and verify agentic-vulcan separately
-before an authorized deployment. A fixed `agentic_vulcan_failed` at stage
-`agentic_vulcan` means the handoff did not produce a valid success receipt;
-inspect that service separately without copying private output into triage logs.
+before an authorized deployment. A logged `agentic_vulcan_failed` means the
+handoff did not produce a valid success receipt; inspect that service separately
+without copying private output into triage logs.
 
-Forwarding is at least once: success followed by a crash or failure before leave
-or archive preparation may deliver again on retry. There is no new queue,
+Forwarding is at most one attempt per read: a failed handoff is not retried by
+triage, but a later failure of the normal pipeline before leave or archive
+preparation re-reads the mail and may deliver again. There is no new queue,
 deduplication, or local forwarding state. Prepared archive retries skip forwarding.

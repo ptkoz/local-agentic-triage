@@ -102,9 +102,12 @@ def poll(mailbox,store,config,classifier=classify,event_processor=process, *, ex
             stage='read'
             raw=mailbox.raw(uid)
             if vulcan_sender(raw):
-                stage='agentic_vulcan'
-                forward(raw,config)
-            stage='read'
+                # Best-effort side quest: log only fixed results, never block triage.
+                try:
+                    forward(raw,config)
+                    log.info('agentic_vulcan_completed uid=%s result=delivered',uid)
+                except Exception:
+                    log.error('agentic_vulcan_failed uid=%s result=failed',uid)
             mail=parse(raw,config.max_mail_bytes)
             if not mail.sent_date:
                 mail=replace(mail,sent_date=mailbox.internal_date(uid))

@@ -313,16 +313,19 @@ agentic-vulcan: it requires one valid From mailbox and rejects duplicate headers
 multiple addresses, groups, comments, controls and defective From syntax. A
 case-insensitive `noreply@vulcan.net.pl` match invokes
 `<agentic_vulcan> process --config <agentic_vulcan_config> --state <agentic_vulcan_state>`.
-The exact original bytes travel on stdin with `shell=False`, captured private
-stdout/stderr, no temporary mail file, and the configured positive timeout.
+The exact original bytes travel on stdin with `shell=False`, discarded stderr,
+stdout drained through a pipe and capped at 1024 bytes (oversize is a failure),
+no temporary mail file, and the configured positive timeout.
 Exit status must be zero and stdout must be strict JSON with exactly
 `{"code":"DELIVERED","deliveries":1}` (integer count, no duplicate keys or extras).
-All handoff failures are fatal/retryable before classification and disposition.
-Success continues the normal summary, destination, events, and leave/archive flow.
+The handoff is a best-effort side quest: success logs the fixed
+`agentic_vulcan_completed uid=<uid> result=delivered`, any failure logs the fixed
+`agentic_vulcan_failed uid=<uid> result=failed`, and in both cases the normal
+summary, destination, events, and leave/archive flow proceeds unchanged.
 Diagnosis never invokes the handoff.
 
-This is at-least-once delivery without a new queue, dedupe mechanism, or state.
-A successful handoff followed by a crash, classification failure, or disposition
-failure before archive preparation can repeat delivery. Archive preparation freezes
+A failed handoff is not retried. There is no new queue, dedupe mechanism, or state,
+so a crash, classification failure, or disposition failure before archive
+preparation re-reads the mail and can repeat delivery. Archive preparation freezes
 the existing retry path, which neither reads raw mail nor forwards again. A child
 timeout can also leave an unknown delivery outcome and a duplicate on retry.
