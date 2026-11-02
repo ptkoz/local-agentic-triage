@@ -80,10 +80,11 @@ runbook](docs/debugging.md) for UID/UIDVALIDITY scope, error-code meanings,
 privacy rules, and the exact no-mutation procedure.
 
 The poll LaunchAgent runs every 300 seconds. The report LaunchAgent runs at
-local 18:00. It retries all pending rows first, then sends one mentioned summary
-counting every archive report delivered since the previous successful summary,
-including old backlog delivered by the current run and summaries with zero new
-reports. See [architecture](docs/architecture.md) for retry and delivery
+local 18:00. It retries all pending rows first, then sends one summary counting
+every archive report delivered since the previous successful summary, including
+old backlog delivered by the current run. Nonzero summaries mention the configured
+user; zero summaries use a notification without a mention. See
+[architecture](docs/architecture.md) for retry and delivery
 semantics, [security](docs/security.md) for privacy boundaries, and the
 [debugging runbook](docs/debugging.md) for production diagnosis.
 

@@ -56,8 +56,9 @@ def label(value,comma=False):
 
 def header(user_id,count):
     if not re.fullmatch(r'[1-9][0-9]{0,19}',user_id) or int(user_id)>MAX_SNOWFLAKE: raise ValueError('invalid discord user id')
+    if count==0: return 'Od poprzedniego podsumowania nie przeniesiono żadnych wiadomości do Archiwum.'
     wording='wiadomości** przeniesionej' if count==1 else 'wiadomościach** przeniesionych'
-    return f'<@{user_id}>, powyżej znajduje się informacja o **{count} {wording} do Archiwum od poprzedniego podsumowania:'
+    return f'<@{user_id}>, powyżej znajduje się informacja o **{count} {wording} do Archiwum od poprzedniego podsumowania.'
 
 
 def record_message(row,limit):
