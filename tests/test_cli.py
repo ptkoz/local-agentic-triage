@@ -68,7 +68,7 @@ class CLITests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             executable=Path(d)/'tool'; executable.write_text('#!/bin/sh\n'); executable.chmod(0o700)
             config=Path(d)/'config.toml'
-            config.write_text(config_text(himalaya=str(executable),hermes=str(executable),database=f'{d}/db',poll_lock=f'{d}/poll.lock',report_lock=f'{d}/report.lock'))
+            config.write_text(config_text(himalaya=str(executable),hermes=str(executable),agentic_vulcan=str(executable),agentic_vulcan_config=str(executable),database=f'{d}/db',poll_lock=f'{d}/poll.lock',report_lock=f'{d}/report.lock'))
             previous=os.umask(0o022)
             try:
                 with patch('local_agentic_triage.cli.Mailbox.connect') as mailbox,patch('local_agentic_triage.cli.Store') as store,patch('local_agentic_triage.cli.send') as send,patch('local_agentic_triage.cli.Lock') as lock,patch('local_agentic_triage.cli.subprocess.run') as run:
@@ -80,3 +80,21 @@ class CLITests(unittest.TestCase):
             lock.assert_not_called(); run.assert_not_called()
             executable.chmod(0o600)
             self.assertEqual(main(['--config',str(config),'config','validate']),1)
+
+    def test_agentic_validate_checks_files_without_execution_or_state_read(self):
+        from helpers import make_config
+        for missing in ('agentic_vulcan', 'agentic_vulcan_config', None):
+            config = make_config()
+            def is_file(path):
+                return str(path) != getattr(config, missing) if missing else True
+            with self.subTest(missing=missing), patch('local_agentic_triage.cli.load', return_value=config), \
+                 patch.object(Path, 'is_file', is_file), \
+                 patch('local_agentic_triage.cli.os.access', return_value=True), \
+                 patch('local_agentic_triage.cli.subprocess.run') as run, \
+                 patch.object(Path, 'open') as opened:
+                self.assertEqual(main(['config', 'validate']), 1 if missing else 0)
+                run.assert_not_called(); opened.assert_not_called()
+        with patch('local_agentic_triage.cli.load', return_value=make_config()), \
+             patch.object(Path, 'is_file', return_value=True), \
+             patch('local_agentic_triage.cli.os.access', side_effect=lambda path, mode: str(path) != make_config().agentic_vulcan):
+            self.assertEqual(main(['config', 'validate']), 1)

@@ -6,9 +6,10 @@ import tomllib
 DEFAULT_PATH = Path.home() / 'Library/Application Support/local-agentic-triage/config.toml'
 REQUIRED = (
     'account', 'inbox', 'archive', 'channel', 'discord_user_id', 'calendar',
-    'himalaya', 'hermes', 'database', 'poll_lock', 'report_lock',
+    'himalaya', 'hermes', 'agentic_vulcan', 'agentic_vulcan_config', 'agentic_vulcan_state', 'database', 'poll_lock', 'report_lock',
 )
-PATHS = ('himalaya', 'hermes', 'database', 'poll_lock', 'report_lock', 'delivery_lock')
+PATHS = ('himalaya', 'hermes', 'agentic_vulcan', 'agentic_vulcan_config',
+         'agentic_vulcan_state', 'database', 'poll_lock', 'report_lock', 'delivery_lock')
 PLACEHOLDER = re.compile(r'@[A-Z][A-Z0-9_]*@')
 SNOWFLAKE = r'[1-9][0-9]{0,19}'
 
@@ -23,6 +24,9 @@ class Config:
     calendar: str
     himalaya: str
     hermes: str
+    agentic_vulcan: str
+    agentic_vulcan_config: str
+    agentic_vulcan_state: str
     database: str
     poll_lock: str
     report_lock: str

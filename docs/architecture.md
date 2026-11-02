@@ -304,3 +304,25 @@ scheduled run holds it from pending-row selection through summary persistence, s
 an immediate report cannot appear between the count cutoff and mention. An
 immediate sender rechecks `reported_at` after acquiring the lock, because a waiting
 scheduled run may already have delivered and acknowledged it.
+
+## eduVULCAN handoff
+
+The poll reads raw RFC822 bytes once. Before ordinary MIME/body decoding, a
+headers-only UTF-8 parser applies the same deliberately narrow From grammar as
+agentic-vulcan: it requires one valid From mailbox and rejects duplicate headers,
+multiple addresses, groups, comments, controls and defective From syntax. A
+case-insensitive `noreply@vulcan.net.pl` match invokes
+`<agentic_vulcan> process --config <agentic_vulcan_config> --state <agentic_vulcan_state>`.
+The exact original bytes travel on stdin with `shell=False`, captured private
+stdout/stderr, no temporary mail file, and the configured positive timeout.
+Exit status must be zero and stdout must be strict JSON with exactly
+`{"code":"DELIVERED","deliveries":1}` (integer count, no duplicate keys or extras).
+All handoff failures are fatal/retryable before classification and disposition.
+Success continues the normal summary, destination, events, and leave/archive flow.
+Diagnosis never invokes the handoff.
+
+This is at-least-once delivery without a new queue, dedupe mechanism, or state.
+A successful handoff followed by a crash, classification failure, or disposition
+failure before archive preparation can repeat delivery. Archive preparation freezes
+the existing retry path, which neither reads raw mail nor forwards again. A child
+timeout can also leave an unknown delivery outcome and a duplicate on retry.

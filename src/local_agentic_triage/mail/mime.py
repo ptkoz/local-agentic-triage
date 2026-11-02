@@ -3,6 +3,9 @@ from email import policy
 from email.parser import BytesParser
 from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
+import re
+
+TRUSTED_VULCAN_SENDER='noreply@vulcan.net.pl'
 
 class Text(HTMLParser):
     def __init__(self):
@@ -22,6 +25,43 @@ class Mail:
     sent_date: str
     body: str
     subject: str = ''
+
+def vulcan_sender(raw):
+    """Match the same deliberately narrow From grammar as agentic-vulcan."""
+    if not isinstance(raw,bytes): return False
+    boundary=raw.find(b'\r\n\r\n')
+    if boundary<0: boundary=raw.find(b'\n\n')
+    if boundary<0: return False
+    header=raw[:boundary]
+    if re.search(br'\r(?!\n)',header): return False
+    normalized=header.replace(b'\r\n',b'\n')
+    try: text=normalized.decode('utf-8')
+    except UnicodeError: return False
+    unfolded=[]
+    for line in text.split('\n'):
+        if line.startswith((' ','\t')):
+            if not unfolded: return False
+            unfolded[-1]+=' '+line.lstrip(' \t')
+        else: unfolded.append(line)
+    found=[]
+    for line in unfolded:
+        index=line.find(':')
+        if index<=0 or not re.fullmatch(r'[!-9;-~]+',line[:index]): return False
+        if line[:index].lower()=='from': found.append(line[index+1:])
+    if len(found)!=1: return False
+    value=found[0]
+    if re.search(r'[\x00-\x08\x0a-\x1f\x7f]',value): return False
+    value=value.strip(' \t')
+    if value.lower()==TRUSTED_VULCAN_SENDER: return True
+    bracketed=re.fullmatch(r'(.*?)<([^<>]+)>',value)
+    if not bracketed or bracketed.group(2).lower()!=TRUSTED_VULCAN_SENDER: return False
+    display=bracketed.group(1).rstrip(' \t')
+    if not display: return True
+    if re.search(r'[<>@()]',display): return False
+    if display.startswith('"'):
+        return (re.fullmatch(r'"(?:[^"\\]|\\["\\])+"',display) is not None
+                and bool(display[1:-1].strip()))
+    return re.search(r'[",;:\\]',display) is None
 
 def parse(raw,limit):
     if limit and len(raw)>limit: raise ValueError('mail size limit')
