@@ -1,5 +1,6 @@
 import logging
 import json
+from email.utils import parseaddr
 from dataclasses import replace
 from pathlib import Path
 from local_agentic_triage.common.lock import Lock
@@ -110,7 +111,7 @@ def poll(mailbox,store,config,classifier=classify,event_processor=process, *, ex
                 log.info('mail_content_truncated uid=%s fields=%s',uid,','.join(truncated))
             log.info('mail_item_action item=%d uid=%s stage=classify',index,uid)
             result=validate_disposition(classifier(mail))
-            if mail.sender.lower()==VULCAN_SENDER: forward(uid,raw,config)
+            if parseaddr(mail.sender)[1].lower()==VULCAN_SENDER: forward(uid,raw,config)
 
             if result['destination']=='archive':
                 stage='report_row'
