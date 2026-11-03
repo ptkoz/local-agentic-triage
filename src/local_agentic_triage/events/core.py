@@ -1,7 +1,7 @@
 from importlib.resources import files
 from datetime import datetime
 import json
-from local_agentic_triage.classifier.core import CONTEXT_TOKENS, MAX_TOKENS, chat_completion, strict_json, timestamp, mail_payload, response_schema
+from local_agentic_triage.classifier.core import CONTEXT_TOKENS, MAX_TOKENS, chat_completion, strict_json, timestamp, mail_source, compact_json, response_schema
 
 def prompt(): return files(__package__).joinpath('duplicate.md').read_text(encoding='utf-8')
 
@@ -160,7 +160,7 @@ EXTRACTION_SCHEMA=response_schema(__package__,'extraction')
 
 def extract(mail):
     result=chat_completion([{'role':'system','content':extraction_prompt()},
-                            {'role':'user','content':json.dumps(mail_payload(mail),ensure_ascii=False)}],EXTRACTION_SCHEMA)
+                            {'role':'user','content':compact_json(mail_source(mail))}],EXTRACTION_SCHEMA)
     if not isinstance(result,dict) or set(result)!={'events'}: raise ValueError('event_extraction_keys')
     validate_events(result['events'])
     return result['events']

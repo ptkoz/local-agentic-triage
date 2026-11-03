@@ -13,8 +13,9 @@ class FivePassTests(unittest.TestCase):
         messages,schema=chat.call_args_list[1].args
         self.assertEqual(set(schema['json_schema']['schema']['properties']),{'destination'})
         self.assertNotEqual(messages[0]['content'],core.prompt())
-        self.assertEqual(json.loads(messages[1]['content']),{
-            'summary':'Synthetic summary','mail':core.mail_payload(mail)})
+        self.assertEqual(messages[1]['content'],
+            '{"summary": "Synthetic summary", "mail": {"metadata": {"sent_date": "", "sender": "synthetic@example.invalid", '
+            '"subject": ""}, "body": "body"}}')
 
 
     def test_extraction_failure_is_optional_for_both_dispositions(self):
