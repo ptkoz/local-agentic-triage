@@ -1,6 +1,5 @@
 import logging
 import re
-import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -12,33 +11,6 @@ log=logging.getLogger('local_agentic_triage')
 WARSAW=ZoneInfo('Europe/Warsaw')
 MONTHS=('','sty','lut','mar','kwi','maj','cze','lip','sie','wrz','paź','lis','gru')
 MAX_SNOWFLAKE=2**64-1
-EMAIL=re.compile(r"(?<![A-Za-z0-9.!#$%&'*+/=?^_`{|}~-])[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,63}(?![A-Za-z0-9.-])")
-SEPARATOR=r'[.\u3002\uff0e\uff61]'
-MARKDOWN=str.maketrans({'|':'/','`':"'",'\\':'＼','*':'＊','_':'＿','~':'～','#':'＃','[':'［',']':'］','(':'（',')':'）','+':'＋','-':'‐','<':'‹','>':'›'})
-EMAIL_MARKDOWN=str.maketrans({'|':'/','`':"'",'\\':'＼','*':'＊','_':'＿','~':'～'})
-
-
-def neutralize(value):
-    value=re.sub(r'@(everyone|here)\b(?!\.[A-Za-z0-9-])',lambda match:'＠'+match.group(1),value,flags=re.IGNORECASE)
-    value=re.sub(r'(?i)\b([a-z][a-z0-9+.-]*):',lambda match:match.group(1)+'：',value)
-    domain=rf'(?<![@\w])(?:[\w-]+{SEPARATOR})+[\w-]{{2,63}}(?:/[^\s]*)?'
-    value=re.sub(domain,lambda match:re.sub(SEPARATOR,'·',match.group(0)),value)
-    ipv4=rf'(?<![@\w])(?:[0-9]{{1,3}}{SEPARATOR}){{3}}[0-9]{{1,3}}(?:/[^\s]*)?'
-    value=re.sub(ipv4,lambda match:re.sub(SEPARATOR,'·',match.group(0)),value)
-    value=value.translate(MARKDOWN)
-    return re.sub(r'^([0-9]+)\. ',r'\1． ',value)
-
-
-def sanitize(value):
-    cleaned=''.join(' ' if unicodedata.category(c).startswith('C') or c.isspace() else c for c in value)
-    cleaned=' '.join(cleaned.split())
-    parts=[]; offset=0
-    for match in EMAIL.finditer(cleaned):
-        local,domain=match.group(0).rsplit('@',1)
-        parts.extend((neutralize(cleaned[offset:match.start()]),local.translate(EMAIL_MARKDOWN)+'@'+domain))
-        offset=match.end()
-    parts.append(neutralize(cleaned[offset:]))
-    return ''.join(parts)
 
 
 def boundary(value):
@@ -63,7 +35,7 @@ def header(user_id,count):
 
 def record_message(row,limit):
     if not 100<=limit<=2000: raise ValueError('report limit invalid')
-    sender=sanitize(row['sender']); summary=sanitize(row['summary'])
+    sender=row['sender']; summary=row['summary']
     if row['sent_at']:
         text=f'**Archiwum**: Od **{sender}** z dnia {label(row["sent_at"],comma=True)}\n> {summary}'
     else:
