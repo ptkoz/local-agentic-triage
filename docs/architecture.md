@@ -290,9 +290,8 @@ since the previous successful mention, including deliveries made after the failu
 Only successful summary delivery atomically stores the current cutoff, advances
 `report_meta.last_end_at`, and clears the scheduled window. A record that
 cannot fit the configured Discord limit fails before any delivery; records are
-not split or truncated. Sanitization flattens whitespace/control characters and
-neutralizes Discord Markdown, mentions and links while preserving ordinary email
-addresses. There is no LLM call for report delivery.
+not split or truncated. Sender and summary are emitted exactly as stored, without
+sanitization. There is no LLM call for report delivery.
 
 Discord delivery is at least once: a crash after sending a record but before
 marking it can cause that record to be duplicated on retry. There is no remote

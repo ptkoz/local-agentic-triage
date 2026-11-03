@@ -7,31 +7,21 @@ from unittest.mock import MagicMock, Mock, patch
 from zoneinfo import ZoneInfo
 
 from helpers import make_config
-from local_agentic_triage.reporting.report import sanitize, header, record_message, send
+from local_agentic_triage.reporting.report import header, record_message, send
 from local_agentic_triage.reporting.store import Store
 
 UTC=ZoneInfo('UTC')
 
 
 class ReportTests(unittest.TestCase):
-    def test_sanitize(self):
-        text=sanitize('a|b\n`x`\\_*~#[]()+-\x00 @everyone foo@everyone foo@here @here <@123> <@&4> <#5> https://evil.invalid x://one.invalid mailto:bad@example.invalid tel:+48123 www.evil.invalid example.com/path discord.gg/code пример.рф/path 例子。中国 例子．中国 例子｡中国 127.0.0.1/path')
-        for bad in ('|','\n','`','\\','_','*','~','#','[',']','(',')','+','-','\x00','@everyone','@here','<@','<#','://','mailto:','tel:','www.','example.com','one.invalid','discord.gg','пример.рф','例子。中国','例子．中国','例子｡中国','127.0.0.1'):
-            self.assertNotIn(bad,text)
-        for address in ('person@example.com','person@here.example.com','person@everyone.example.com','first-last+tag@example.com','a+b@example.com'):
-            self.assertIn(address,sanitize(address))
-        for address in ('foo*bar*baz@example.com','*foo*@example.com','foo_bar_baz@example.com','_foo_@example.com','foo~bar~baz@example.com','~foo~@example.com','foo`bar`baz@example.com','`foo`@example.com','foo|bar@example.com',r'foo\bar@example.com'):
-            cleaned=sanitize(address)
-            self.assertIn('@example.com',cleaned)
-            self.assertFalse(any(char in cleaned for char in ('*','_','~','`','|','\\')))
-
     def test_summary_and_one_record_format(self):
         start=datetime(2026,11,8,16,44,tzinfo=UTC); end=datetime(2026,11,9,17,0,tzinfo=UTC)
         self.assertEqual(header('2',9),'<@2>, powyżej znajduje się informacja o **9 wiadomościach** przeniesionych do Archiwum od poprzedniego podsumowania.')
         self.assertEqual(header('2',1),'<@2>, powyżej znajduje się informacja o **1 wiadomości** przeniesionej do Archiwum od poprzedniego podsumowania.')
         row={'source_key':'key','created_at':'2099-01-01T00:00:00+00:00','sent_at':'2026-10-31T00:27:00+00:00','sender':'Example Sender <sender@example.invalid>','summary':'Nadawca przesłał syntetyczne powiadomienie.'}
-        self.assertEqual(record_message(row,1900),'**Archiwum**: Od **Example Sender ‹sender@example.invalid›** z dnia 31 paź, 01:27\n> Nadawca przesłał syntetyczne powiadomienie.')
+        self.assertEqual(record_message(row,1900),'**Archiwum**: Od **Example Sender <sender@example.invalid>** z dnia 31 paź, 01:27\n> Nadawca przesłał syntetyczne powiadomienie.')
         with self.assertRaises(ValueError): record_message(row|{'summary':'x'*2000},1900)
+        self.assertEqual(record_message(row|{'summary':'*Ważne* (4 listopada)'},1900),'**Archiwum**: Od **Example Sender <sender@example.invalid>** z dnia 31 paź, 01:27\n> *Ważne* (4 listopada)')
 
     def test_delivery_requires_explicit_runner_before_state_access(self):
         store=Mock()
