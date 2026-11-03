@@ -3,7 +3,7 @@ import hashlib
 from pathlib import Path
 from local_agentic_triage.mail.mime import parse
 from local_agentic_triage.classifier.core import (ModelContentJsonInvalid,
-    ModelEnvelopeJsonInvalid, validate, prompt, classify, mail_payload)
+    ModelEnvelopeJsonInvalid, validate, prompt, classify, mail_payload, mail_source)
 from unittest.mock import patch
 import json
 from local_agentic_triage.common.diagnostics import error_code
@@ -43,7 +43,7 @@ class ContentTests(unittest.TestCase):
             self.assertEqual(call.call_args.kwargs['timeout'],300)
             self.assertNotIn('chat_template_kwargs',data)
             self.assertEqual(set(data['response_format']['json_schema']['schema']['properties']),{'summary'})
-            self.assertIn('sent_date',data['messages'][1]['content'])
+            self.assertEqual(data['messages'][1]['content'],'{"metadata":{"sent_date":"","sender":"","subject":""},"body":"body"}')
 
     def test_classify_summarizes_before_destination_with_separate_source(self):
         import local_agentic_triage.classifier.core as core
@@ -54,10 +54,13 @@ class ContentTests(unittest.TestCase):
         self.assertEqual(chat.call_count,2)
         self.assertIs(chat.call_args_list[0].args[1],core.SUMMARY_SCHEMA)
         self.assertIs(chat.call_args_list[1].args[1],core.CLASSIFICATION_SCHEMA)
-        summary_payload=json.loads(chat.call_args_list[0].args[0][1]['content'])
-        destination_payload=json.loads(chat.call_args_list[1].args[0][1]['content'])
-        self.assertEqual(destination_payload,{
-            'summary':'Syntetyczne podsumowanie.','mail':summary_payload})
+        source={'metadata':{'sent_date':'2025-01-01T12:00:00+01:00','sender':'','subject':'Synthetic'},'body':'body'}
+        self.assertEqual(chat.call_args_list[0].args[0][1]['content'],
+            '{"metadata":{"sent_date":"2025-01-01T12:00:00+01:00","sender":"","subject":"Synthetic"},"body":"body"}')
+        self.assertEqual(chat.call_args_list[1].args[0][1]['content'],
+            '{"summary": "Syntetyczne podsumowanie.", "mail": '
+            '{"metadata": {"sent_date": "2025-01-01T12:00:00+01:00", "sender": "", "subject": "Synthetic"}, "body": "body"}}')
+        self.assertEqual(json.loads(chat.call_args_list[1].args[0][1]['content'])['mail'],source)
 
         with patch.object(core,'chat_completion',side_effect=[
                 {'summary':'Syntetyczne podsumowanie.'},{'destination':'archive'}]) as chat:
@@ -68,8 +71,10 @@ class ContentTests(unittest.TestCase):
         self.assertEqual(chat.call_args_list[1].args[0][0]['content'],core.disposition_prompt())
 
 
-    def test_destination_http_request_contains_generated_summary_and_source(self):
-        mail=parse(b'From: sender@example.invalid\nSubject: Synthetic\n\nSynthetic body',1000)
+    def test_http_requests_serialize_exact_source_without_recipient(self):
+        raw=(b'From: =?utf-8?q?Zo=C5=BCa?= <sender@example.invalid>\nTo: recipient@example.invalid\n'
+             b'Subject: Synthetic\nDate: Wed, 01 Jan 2025 12:00:00 +0100\n\nSynthetic body')
+        mail=parse(raw,1000)
         class Response:
             def __init__(self,content): self.content=content
             def __enter__(self): return self
@@ -77,13 +82,20 @@ class ContentTests(unittest.TestCase):
             def read(self):
                 return json.dumps({'choices':[{'finish_reason':'stop','message':{
                     'content':json.dumps(self.content)}}]}).encode()
+        source=('{"metadata":{"sent_date":"2025-01-01T12:00:00+01:00","sender":"Zo\u017ca <sender@example.invalid>",'
+                '"subject":"Synthetic"},"body":"Synthetic body"}')
         with patch('urllib.request.OpenerDirector.open',side_effect=[
-                Response({'summary':'Syntetyczny opis.'}),Response({'destination':'archive'})]) as call:
+                Response({'summary':'Syntetyczny opis.'}),Response({'destination':'archive'}),
+                Response({'events':[]})]) as call:
             result=classify(mail)
-        first,second=[json.loads(c.args[0].data) for c in call.call_args_list]
-        self.assertEqual(json.loads(first['messages'][1]['content']),mail_payload(mail))
-        self.assertEqual(json.loads(second['messages'][1]['content']),{
-            'summary':'Syntetyczny opis.','mail':mail_payload(mail)})
+            from local_agentic_triage.events import core as events
+            events.extract(mail)
+        requests=[json.loads(c.args[0].data) for c in call.call_args_list]
+        self.assertEqual([r['messages'][1]['content'] for r in requests],[
+            source,'{"summary": "Syntetyczny opis.", "mail": {"metadata": {"sent_date": "2025-01-01T12:00:00+01:00", "sender": "Zoża <sender@example.invalid>", "subject": "Synthetic"}, "body": "Synthetic body"}}',source])
+        self.assertEqual(json.loads(requests[1]['messages'][1]['content'])['mail'],json.loads(source))
+        for request in requests:
+            self.assertNotIn('recipient',json.dumps(request))
         self.assertEqual(result,{'destination':'archive','summary':'Syntetyczny opis.'})
 
     def test_classify_does_not_revalidate_assembled_disposition(self):
@@ -137,3 +149,7 @@ class ContentTests(unittest.TestCase):
         for field in ('sent_date','sender','subject','body'):
             self.assertLess(len(payload[field]),200001)
             self.assertTrue(payload[field].endswith('[content truncated]'))
+        source=mail_source(mail)
+        self.assertEqual(set(source),{'metadata','body'})
+        self.assertEqual(set(source['metadata']),{'sent_date','sender','subject'})
+        self.assertLessEqual(len(json.dumps(source,ensure_ascii=False,separators=(',',':')).encode()),10000)

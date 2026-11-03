@@ -28,7 +28,7 @@ class HardeningTests(unittest.TestCase):
             self.assertEqual(handlers[0].proxies,{})
             with self.assertRaises(ValueError): handlers[1].redirect_request(None,None,302,'','', 'https://example.invalid')
             payload=json.loads(opener.open.call_args_list[1].args[0].data)
-            metadata=json.loads(payload['messages'][1]['content'])['mail']
+            metadata=json.loads(payload['messages'][1]['content'])['mail']['metadata']
             self.assertEqual(metadata['subject'],'title')
             self.assertEqual(metadata['sender'],'sender')
     def test_invalid_config_values(self):

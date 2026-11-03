@@ -34,11 +34,20 @@ def bounded_string(value,budget):
         else: high=middle-1
     return value[:low]+TRUNCATION
 
+def compact_json(value): return json.dumps(value,ensure_ascii=False,separators=(',',':'))
+
 def mail_payload(mail):
     result={field:bounded_string(getattr(mail,field),budget) for field,budget in MAIL_FIELD_BUDGETS.items()}
-    if len(json.dumps(result,ensure_ascii=False,separators=(',',':')).encode())>10000:
+    if len(compact_json(result).encode())>10000:
         raise ValueError('mail payload size')
     return result
+
+def mail_source(mail):
+    """Model view of a bounded mail: parsed body apart from date, sender and subject."""
+    fields=mail_payload(mail)
+    source={'metadata':{name:fields[name] for name in ('sent_date','sender','subject')},'body':fields['body']}
+    if len(compact_json(source).encode())>10000: raise ValueError('mail payload size')
+    return source
 
 def bound_mail(mail):
     payload=mail_payload(mail)
@@ -144,10 +153,10 @@ def validate_disposition(obj):
     return obj
 
 def classify(mail):
-    source=mail_payload(mail)
+    source=mail_source(mail)
     summary=validate_summary(chat_completion([
         {'role':'system','content':summary_prompt()},
-        {'role':'user','content':json.dumps(source,ensure_ascii=False)},
+        {'role':'user','content':compact_json(source)},
     ],SUMMARY_SCHEMA))['summary']
     destination=validate_destination(chat_completion([
         {'role':'system','content':disposition_prompt()},
