@@ -9,7 +9,6 @@ from local_agentic_triage.mail.pipeline import poll
 from local_agentic_triage.mail.vulcan import forward
 from local_agentic_triage.reporting.store import Store
 
-RECEIPT = b'{"code":"DELIVERED","deliveries":1}'
 DATE = b'Date: Sat, 31 Oct 2026 01:27:00 +0100\r\n\r\nprivate body\xff\rtrailer'
 
 
@@ -17,7 +16,7 @@ def raw_from(sender):
     return b'From: ' + sender + b'\r\n' + DATE
 
 
-def result(stdout=RECEIPT, code=0):
+def result(stdout=b'', code=0):
     return subprocess.CompletedProcess([], code, stdout, b'private stderr')
 
 
@@ -35,15 +34,14 @@ class VulcanTests(unittest.TestCase):
             forward('9', raw, config)
         app = f'{home}/Library/Application Support/agentic-vulcan'
         run.assert_called_once_with(
-            [f'{home}/.local/bin/agentic-vulcan', 'process', '--config', f'{app}/config.json', '--state', f'{app}/state'],
-            input=raw, shell=False, capture_output=True, timeout=config.timeout)
+            [f'{home}/.local/bin/agentic-vulcan-orchestrator', '--config', f'{app}/config.json'],
+            input=raw, shell=False, capture_output=True)
         self.assertEqual(logs.output, ['INFO:local_agentic_triage:agentic_vulcan_completed uid=9 result=delivered'])
 
-    def test_forward_requires_exact_receipt_and_absorbs_failures(self):
-        bad = (result(code=3), result(b'private output'), result(b'{}'), result(b'{"code":"DELIVERED","deliveries":true}'),
-               result(b'{"code":"DELIVERED","deliveries":1.0}'), result(b'{"code":"DELIVERED","deliveries":2}'),
-               result(b'{"code":"DELIVERED","deliveries":1,"extra":1}'), result(b'\xff'),
-               subprocess.TimeoutExpired('private', 1), OSError('private'), RuntimeError('private'))
+    def test_forward_uses_exit_status_and_absorbs_failures(self):
+        run, logs = self.forward(result(b'private output'))
+        self.assertEqual(logs, 'INFO:local_agentic_triage:agentic_vulcan_completed uid=9 result=delivered')
+        bad = (result(code=3), OSError('private'), RuntimeError('private'))
         for outcome in bad:
             with self.subTest(outcome=repr(outcome)[:40]):
                 run, logs = self.forward(outcome)
@@ -83,7 +81,7 @@ class VulcanTests(unittest.TestCase):
                 self.assertNotIn('agentic_vulcan', logs)
 
     def test_failure_logs_fixed_result_and_triage_continues(self):
-        for outcome in (result(code=3), result(b'private output'), subprocess.TimeoutExpired('private', 1), OSError('private')):
+        for outcome in (result(code=3), OSError('private')):
             for destination in ('leave', 'archive'):
                 with self.subTest(outcome=repr(outcome)[:30], destination=destination):
                     status, box, classifier, run, raw, logs = self.run_poll(b'noreply@vulcan.net.pl', outcome, destination)

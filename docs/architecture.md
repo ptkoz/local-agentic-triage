@@ -306,12 +306,14 @@ scheduled run may already have delivered and acknowledged it.
 
 ## eduVULCAN handoff
 
-Right after `validate_disposition(classifier(mail))`, the poll compares the parsed
-`mail.sender` (lower-cased, no other normalization) to `noreply@vulcan.net.pl` and, on
-equality, calls `mail.vulcan.forward`. It runs `agentic-vulcan process` with the exact
-raw bytes on stdin (`shell=False`, configured timeout), synchronously. Success is exit
-status 0 and stdout exactly `{"code":"DELIVERED","deliveries":1}`, logged as
-`agentic_vulcan_completed uid=... result=delivered`. Any other outcome, including any
-exception, is absorbed by the helper and logged as `agentic_vulcan_failed uid=...
-result=failed`; triage continues unchanged. There is no queue, deduplication, or retry
-state, so a later pipeline failure that re-reads the mail can deliver it again.
+Right after `validate_disposition(classifier(mail))`, the poll compares the address
+extracted from `mail.sender` case-insensitively to `noreply@vulcan.net.pl` and, on
+equality, calls `mail.vulcan.forward`. It runs the fixed
+`~/.local/bin/agentic-vulcan-orchestrator --config <fixed-private-config>` launcher
+with the exact raw bytes on stdin (`shell=False`) and waits synchronously without
+imposing a triage timeout on autonomous repair. Exit status 0 is logged as
+`agentic_vulcan_completed uid=... result=delivered`. Any nonzero status or exception
+is absorbed by the helper and logged as `agentic_vulcan_failed uid=... result=failed`;
+stdout and stderr are discarded and triage continues unchanged. Triage has no queue,
+deduplication, or retry state; the orchestrator exclusively owns identify/read repair
+and rerunning its installed version.
