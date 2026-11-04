@@ -156,8 +156,10 @@ Mail whose parsed `From` address equals `noreply@vulcan.net.pl` case-insensitive
 is piped as exact raw bytes to `~/.local/bin/agentic-vulcan-orchestrator --config
 ~/Library/Application Support/agentic-vulcan/config.json` right after classification.
 The paths are fixed and resolved from `$HOME`; there is no triage configuration.
-The synchronous orchestrator owns identify/read repair and its installed rerun.
-The handoff outcome is logged as a fixed `agentic_vulcan_completed` or
-`agentic_vulcan_failed` line; triage does not inspect child output or retry the
-handoff, and continues its normal disposition after the child exits. `mail diagnose`
-never invokes the orchestrator.
+Triage spools the exact bytes to a private anonymous temporary file, starts the
+orchestrator in a detached session with that file as stdin, and immediately continues
+normal disposition without waiting for completion. A successful spawn is logged as a
+fixed `agentic_vulcan_started` line; a spawn failure uses `agentic_vulcan_failed`.
+Child output is discarded and triage never checks, retries, or supervises the detached
+process. The orchestrator owns identify/read repair and its installed rerun. `mail
+diagnose` never invokes it.

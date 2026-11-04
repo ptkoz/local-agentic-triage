@@ -310,10 +310,12 @@ Right after `validate_disposition(classifier(mail))`, the poll compares the addr
 extracted from `mail.sender` case-insensitively to `noreply@vulcan.net.pl` and, on
 equality, calls `mail.vulcan.forward`. It runs the fixed
 `~/.local/bin/agentic-vulcan-orchestrator --config <fixed-private-config>` launcher
-with the exact raw bytes on stdin (`shell=False`) and waits synchronously without
-imposing a triage timeout on autonomous repair. Exit status 0 is logged as
-`agentic_vulcan_completed uid=... result=delivered`. Any nonzero status or exception
-is absorbed by the helper and logged as `agentic_vulcan_failed uid=... result=failed`;
-stdout and stderr are discarded and triage continues unchanged. Triage has no queue,
-deduplication, or retry state; the orchestrator exclusively owns identify/read repair
-and rerunning its installed version.
+with the exact raw bytes on stdin (`shell=False`) without waiting for autonomous
+repair. It first writes the bytes to an anonymous private
+temporary file, rewinds it, and starts the orchestrator in a new session with that
+file descriptor as stdin and both output streams connected to `/dev/null`. A successful
+spawn is logged as `agentic_vulcan_started uid=... result=started`; only a spawn
+exception is logged as `agentic_vulcan_failed uid=... result=failed`. Triage does not
+wait, inspect an exit status, supervise, or retry the child and immediately continues
+normal disposition. The orchestrator exclusively owns identify/read repair and
+rerunning its installed version.
