@@ -1,9 +1,8 @@
-"""Hand raw eduVULCAN mail to the local agentic-vulcan; success is its exact delivery receipt."""
+"""Hand raw eduVULCAN mail to the local agentic-vulcan orchestrator."""
 import logging
-import subprocess
+import os
+import tempfile
 from pathlib import Path
-
-from local_agentic_triage.classifier.core import strict_json
 
 VULCAN_SENDER = 'noreply@vulcan.net.pl'
 log = logging.getLogger('local_agentic_triage')
@@ -14,15 +13,19 @@ def forward(uid, raw, config):
     try:
         home = Path.home()
         app = home / 'Library/Application Support/agentic-vulcan'
-        result = subprocess.run(
-            [str(home / '.local/bin/agentic-vulcan'), 'process', '--config', str(app / 'config.json'),
-             '--state', str(app / 'state')],
-            input=raw, shell=False, capture_output=True, timeout=config.timeout)
-        if result.returncode == 0:
-            receipt = strict_json(result.stdout)
-            if receipt == {'code': 'DELIVERED', 'deliveries': 1} and type(receipt['deliveries']) is int:
-                log.info('agentic_vulcan_completed uid=%s result=delivered', uid)
-                return
+        with tempfile.TemporaryFile() as input_file:
+            input_file.write(raw)
+            input_file.seek(0)
+            launcher = str(home / '.local/bin/agentic-vulcan-orchestrator')
+            argv = [launcher, '--config', str(app / 'config.json')]
+            actions = [
+                (os.POSIX_SPAWN_DUP2, input_file.fileno(), 0),
+                (os.POSIX_SPAWN_OPEN, 1, os.devnull, os.O_WRONLY, 0o600),
+                (os.POSIX_SPAWN_OPEN, 2, os.devnull, os.O_WRONLY, 0o600),
+            ]
+            os.posix_spawn(launcher, argv, os.environ.copy(), file_actions=actions, setsid=True)
+        log.info('agentic_vulcan_started uid=%s result=started', uid)
+        return
     except Exception:
         pass
     log.error('agentic_vulcan_failed uid=%s result=failed', uid)

@@ -67,7 +67,9 @@ No live mailbox, DMR, calendar or Discord operations belong in tests. Build,
 compile and offline smoke tests are sufficient for local review. Deployment,
 configuration review and service activation are a separate parent-agent step.
 
-The eduVULCAN handoff sends raw mail only to the fixed local `agentic-vulcan`
-launcher. The parsed `From` match is routing, not authentication. Child output,
-mail content, and exception text never enter triage logs; tests mock the
-boundary and never run agentic-vulcan.
+The eduVULCAN handoff sends raw mail only to the fixed local
+`agentic-vulcan-orchestrator` launcher. The parsed `From` match is routing, not authentication. Child output,
+mail content, and exception text never enter triage logs. Exact raw bytes are spooled
+only to an anonymous private temporary file whose open descriptor becomes detached
+orchestrator stdin; both child output streams go to `/dev/null`. Tests mock the boundary
+and never run `agentic-vulcan-orchestrator`.

@@ -152,11 +152,14 @@ semantics, [security](docs/security.md) for privacy boundaries, and the
 
 ## eduVULCAN forwarding
 
-Mail whose parsed `From` header equals `noreply@vulcan.net.pl` (case-insensitive,
-no display-name parsing) is piped as raw bytes to `~/.local/bin/agentic-vulcan process
---config ~/Library/Application Support/agentic-vulcan/config.json --state
-~/Library/Application Support/agentic-vulcan/state` right after classification. The
-paths are fixed and resolved from `$HOME`; there is no configuration. Forwarding
-is best effort: the outcome is logged as a fixed `agentic_vulcan_completed` or
-`agentic_vulcan_failed` line, failures are not retried, and triage is never blocked.
-`mail diagnose` never forwards.
+Mail whose parsed `From` address equals `noreply@vulcan.net.pl` case-insensitively
+is piped as exact raw bytes to `~/.local/bin/agentic-vulcan-orchestrator --config
+~/Library/Application Support/agentic-vulcan/config.json` right after classification.
+The paths are fixed and resolved from `$HOME`; there is no triage configuration.
+Triage spools the exact bytes to a private anonymous temporary file, starts the
+orchestrator in a detached session with that file as stdin, and immediately continues
+normal disposition without waiting for completion. A successful spawn is logged as a
+fixed `agentic_vulcan_started` line; a spawn failure uses `agentic_vulcan_failed`.
+Child output is discarded and triage never checks, retries, or supervises the detached
+process. The orchestrator owns identify/read repair and its installed rerun. `mail
+diagnose` never invokes it.
