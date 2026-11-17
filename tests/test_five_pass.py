@@ -7,12 +7,11 @@ from local_agentic_triage.mail.mime import parse
 class FivePassTests(unittest.TestCase):
     def test_destination_pass_returns_only_disposition(self):
         mail=parse(b'From: synthetic@example.invalid\n\nbody',1000)
-        with patch.object(core,'chat_completion',side_effect=[
-                {'summary':'Synthetic summary'},{'destination':'leave'}]) as chat:
-            self.assertEqual(core.classify(mail),{'destination':'leave','summary':'Synthetic summary'})
-        messages,schema=chat.call_args_list[1].args
+        with patch.object(core,'chat_completion',return_value={'destination':'leave'}) as chat:
+            self.assertEqual(core.classify(mail,'Synthetic summary'),'leave')
+        messages,schema=chat.call_args.args
         self.assertEqual(set(schema['json_schema']['schema']['properties']),{'destination'})
-        self.assertNotEqual(messages[0]['content'],core.prompt())
+        self.assertEqual(messages[0]['content'],core.disposition_prompt())
         self.assertEqual(messages[1]['content'],
             '{"summary": "Synthetic summary", "mail": {"metadata": {"sent_date": "", "sender": "synthetic@example.invalid", '
             '"subject": ""}, "body": "body"}}')
@@ -25,17 +24,20 @@ class FivePassTests(unittest.TestCase):
             with self.subTest(destination=destination):
                 box=Mock(validity='77'); box.candidates.return_value=['9']
                 box.raw.return_value=b'Date: Wed, 01 Jan 2025 12:00:00 +0100\nFrom: synthetic@example.invalid\n\nbody'
-                classifier=Mock(return_value={'destination':destination,'summary':'summary'})
+                summarizer=Mock(return_value='summary')
+                classifier=Mock(return_value=destination)
                 extractor=Mock(side_effect=ValueError('PRIVATE'))
                 processor=Mock()
                 runner=Mock(return_value=Mock(returncode=0))
                 with self.assertLogs('local_agentic_triage',level='ERROR') as logs:
-                    self.assertEqual(poll(box,make_config(),classifier,processor,extractor=extractor,runner=runner),0)
+                    self.assertEqual(poll(box,make_config(),classifier,processor,summarizer=summarizer,
+                                          extractor=extractor,runner=runner),0)
                 self.assertNotIn('PRIVATE','\n'.join(logs.output))
                 getattr(box,destination).assert_called_once_with('9')
                 runner.assert_called_once()
                 processor.assert_not_called()
-                self.assertEqual(extractor.call_args.args,classifier.call_args.args)
+                self.assertEqual(extractor.call_args.args,classifier.call_args.args[:1])
+                self.assertEqual(classifier.call_args.args[1],'summary')
 
 
     def test_all_five_schemas_are_closed_and_complete(self):

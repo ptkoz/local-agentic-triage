@@ -110,7 +110,8 @@ class VulcanTests(unittest.TestCase):
         box.candidates.return_value = ['9']
         box.source_key.return_value = 'key'
         box.raw.return_value = raw
-        classifier = Mock(return_value={'destination': destination, 'summary': 'synthetic summary'})
+        summarizer = Mock(return_value='synthetic summary')
+        classifier = Mock(return_value=destination)
         captured = []
 
         def spawn(*args, **kwargs):
@@ -125,7 +126,7 @@ class VulcanTests(unittest.TestCase):
              self.assertLogs('local_agentic_triage', level='INFO') as logs:
             status = poll(box, make_config(), classifier,
                           Mock(return_value={'status': 'ok', 'results': []}),
-                          extractor=lambda mail: [], runner=runner)
+                          summarizer=summarizer, extractor=lambda mail: [], runner=runner)
         run.stdin_bytes = captured
         return status, box, classifier, run, raw, '\n'.join(logs.output)
 

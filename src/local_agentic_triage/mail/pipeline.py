@@ -5,7 +5,7 @@ from dataclasses import replace
 from local_agentic_triage.mail.mime import parse
 from local_agentic_triage.mail.vulcan import VULCAN_SENDER, forward
 from local_agentic_triage.mail.imap import uid_value
-from local_agentic_triage.classifier.core import classify, validate_disposition, bound_mail
+from local_agentic_triage.classifier.core import summarize, classify, validate_disposition, bound_mail
 from local_agentic_triage.events.core import process, parse_results, extract
 from local_agentic_triage.common.diagnostics import error_code, error_suffix
 from local_agentic_triage.reporting.report import render_notification, deliver
@@ -13,7 +13,7 @@ from local_agentic_triage.reporting.report import render_notification, deliver
 log = logging.getLogger('local_agentic_triage')
 
 
-def diagnose(mailbox, config, uid, classifier=classify, expected_validity=None):
+def diagnose(mailbox, config, uid, classifier=classify, expected_validity=None, *, summarizer=summarize):
     """Replay reading and local classification for one UID without mutations."""
     uid = uid_value(uid)
     validity = uid_value(mailbox.validity)
@@ -25,11 +25,13 @@ def diagnose(mailbox, config, uid, classifier=classify, expected_validity=None):
         mail = parse(mailbox.raw(uid), config.max_mail_bytes)
         if not mail.sent_date:
             mail = replace(mail, sent_date=mailbox.internal_date(uid))
-        stage = 'classify'
         mail, truncated = bound_mail(mail)
         if truncated:
             log.info('mail_content_truncated uid=%s fields=%s', uid, ','.join(truncated))
-        validate_disposition(classifier(mail))
+        stage = 'summarize'
+        summary = summarizer(mail)
+        stage = 'classify'
+        validate_disposition(classifier(mail, summary))
         log.info('mail_diagnosis_completed uid=%s uidvalidity=%s stage=classify', uid, validity)
         return 0
     except Exception as exc:
@@ -38,7 +40,8 @@ def diagnose(mailbox, config, uid, classifier=classify, expected_validity=None):
         return 1
 
 
-def poll(mailbox, config, classifier=classify, event_processor=process, *, extractor=None, runner=None):
+def poll(mailbox, config, classifier=classify, event_processor=process, *, summarizer=summarize,
+         extractor=None, runner=None):
     extractor = extract if extractor is None else extractor
     failures = 0; completed = 0
     log.info('mail_poll_started')
@@ -58,18 +61,21 @@ def poll(mailbox, config, classifier=classify, event_processor=process, *, extra
             mail = parse(raw, config.max_mail_bytes)
             if not mail.sent_date:
                 mail = replace(mail, sent_date=mailbox.internal_date(uid))
-            stage = 'classify'
             mail, truncated = bound_mail(mail)
             if truncated:
                 log.info('mail_content_truncated uid=%s fields=%s', uid, ','.join(truncated))
+            stage = 'summarize'
+            log.info('mail_item_action item=%d uid=%s stage=summarize', index, uid)
+            summary = summarizer(mail)
+            stage = 'classify'
             log.info('mail_item_action item=%d uid=%s stage=classify', index, uid)
-            result = validate_disposition(classifier(mail))
+            destination = validate_disposition(classifier(mail, summary))
 
             # Validate the mandatory notification before optional side effects.
             stage = 'notify'
             notification = render_notification(
-                {'sender': mail.sender, 'summary': result['summary'], 'sent_at': mail.sent_date},
-                result['destination'],
+                {'sender': mail.sender, 'summary': summary, 'sent_at': mail.sent_date},
+                destination,
                 config.discord_limit,
             )
 
@@ -96,7 +102,7 @@ def poll(mailbox, config, classifier=classify, event_processor=process, *, extra
 
             # Apply disposition only after successful send
             stage = 'disposition'
-            if result['destination'] == 'leave':
+            if destination == 'leave':
                 mailbox.leave(uid)
                 log.info('mail_item_action item=%d uid=%s stage=leave', index, uid)
             else:

@@ -3,7 +3,9 @@
 ## Component responsibilities
 
 - `common` owns configuration and process locking.
-- `classifier` owns local-model communication and mail classification.
+- `classifier` owns local-model communication, summary generation, and disposition
+  classification. Summary generation returns a nonempty string; disposition
+  classification accepts that summary and returns only `archive` or `leave`.
 - `events` owns event extraction, duplicate assessment, completion, validation,
   and the Calendar boundary.
 - `mail` owns mail access, MIME parsing, and pipeline orchestration.

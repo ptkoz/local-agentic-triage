@@ -1,9 +1,9 @@
 import unittest
-import hashlib
 from pathlib import Path
 from local_agentic_triage.mail.mime import parse
 from local_agentic_triage.classifier.core import (ModelContentJsonInvalid,
-    ModelEnvelopeJsonInvalid, validate, prompt, classify, mail_payload, mail_source)
+    ModelEnvelopeJsonInvalid, classify, summarize, mail_payload,
+    mail_source)
 from unittest.mock import patch
 import json
 from local_agentic_triage.common.diagnostics import error_code
@@ -19,32 +19,23 @@ class ContentTests(unittest.TestCase):
     def test_plain_preferred(self):
         raw=b'Content-Type: multipart/alternative; boundary=x\n\n--x\nContent-Type: text/html\n\n<b>HTML</b>\n--x\nContent-Type: text/plain\n\nplain\n--x--'
         self.assertEqual(parse(raw,1000).body,'plain')
-    def test_validation(self):
-        good={'destination':'archive','summary':'Potwierdzono zakup biletu.','events':[{'title':'Kino','start':'2026-12-01T18:00:00+01:00','end':None,'date_note':None}]}
-        self.assertEqual(validate(good),good)
-        self.assertEqual(validate(good|{'summary':'x '*100})['summary'],'x '*100)
-        for change in ({'extra':1},{'summary':None},{'summary':''},{'events':[{'title':'X','start':'2026-99-99','end':None,'date_note':None}]}):
-            with self.assertRaises(ValueError): validate(good|change)
-        self.assertEqual(validate({'destination':'leave','summary':'Wymagana odpowiedź.','events':[]})['destination'],'leave')
 
     def test_summary_is_validated_only_at_summary_boundary(self):
         from local_agentic_triage.classifier.core import validate_summary, validate_disposition
-        for summary in ('', None):
-            with self.subTest(summary=summary):
-                self.assertEqual(
-                    validate_disposition({'destination':'archive','summary':summary}),
-                    {'destination':'archive','summary':summary})
+        self.assertEqual(validate_disposition('archive'),'archive')
+        for destination in ('', None, {'destination':'archive'}):
+            with self.subTest(destination=destination), self.assertRaises(ValueError):
+                validate_disposition(destination)
         with self.assertRaises(ValueError):
             validate_summary({'summary':''})
-    def test_exact_prompt(self):
-        self.assertEqual(hashlib.sha256(prompt().encode()).hexdigest(),'12a7044a41d3acc9b173ad69a71a55f3e8783399eaee291057460a1075aecf6c')
+
     def test_local_request_and_truncation(self):
         class Response:
             def __enter__(self): return self
             def __exit__(self,*a): pass
             def read(self,n=None): return json.dumps({'choices':[{'finish_reason':'length','message':{'content':'{}'}}]}).encode()
         with patch('urllib.request.OpenerDirector.open',return_value=Response()) as call:
-            with self.assertRaises(ValueError): classify(parse(b'Date: today\n\nbody',100))
+            with self.assertRaises(ValueError): summarize(parse(b'Date: today\n\nbody',100))
             req=call.call_args.args[0]; data=json.loads(req.data)
             self.assertEqual(req.full_url,'http://127.0.0.1:12434/engines/v1/chat/completions')
             self.assertEqual(data['model'],'docker.io/ai/ministral3-mail-8b:16k')
@@ -54,12 +45,14 @@ class ContentTests(unittest.TestCase):
             self.assertEqual(set(data['response_format']['json_schema']['schema']['properties']),{'summary'})
             self.assertEqual(data['messages'][1]['content'],'{"metadata":{"sent_date":"","sender":"","subject":""},"body":"body"}')
 
-    def test_classify_summarizes_before_destination_with_separate_source(self):
+    def test_summarize_and_classify_are_separate_requests(self):
         import local_agentic_triage.classifier.core as core
         mail=parse(b'Date: Wed, 01 Jan 2025 12:00:00 +0100\nSubject: Synthetic\n\nbody',100)
         with patch.object(core,'chat_completion',side_effect=[
                 {'summary':'Syntetyczne podsumowanie.'},{'destination':'leave'}]) as chat:
-            self.assertEqual(classify(mail),{'destination':'leave','summary':'Syntetyczne podsumowanie.'})
+            summary=summarize(mail)
+            self.assertEqual(summary,'Syntetyczne podsumowanie.')
+            self.assertEqual(classify(mail,summary),'leave')
         self.assertEqual(chat.call_count,2)
         self.assertIs(chat.call_args_list[0].args[1],core.SUMMARY_SCHEMA)
         self.assertIs(chat.call_args_list[1].args[1],core.CLASSIFICATION_SCHEMA)
@@ -71,13 +64,10 @@ class ContentTests(unittest.TestCase):
             '{"metadata": {"sent_date": "2025-01-01T12:00:00+01:00", "sender": "", "subject": "Synthetic"}, "body": "body"}}')
         self.assertEqual(json.loads(chat.call_args_list[1].args[0][1]['content'])['mail'],source)
 
-        with patch.object(core,'chat_completion',side_effect=[
-                {'summary':'Syntetyczne podsumowanie.'},{'destination':'archive'}]) as chat:
-            self.assertEqual(classify(mail),{
-                'destination':'archive','summary':'Syntetyczne podsumowanie.'})
-        self.assertEqual(chat.call_count,2)
-        self.assertEqual(chat.call_args_list[0].args[0][0]['content'],core.summary_prompt())
-        self.assertEqual(chat.call_args_list[1].args[0][0]['content'],core.disposition_prompt())
+        with patch.object(core,'chat_completion',return_value={'destination':'archive'}) as chat:
+            self.assertEqual(classify(mail,'Syntetyczne podsumowanie.'),'archive')
+        self.assertEqual(chat.call_count,1)
+        self.assertEqual(chat.call_args.args[0][0]['content'],core.disposition_prompt())
 
 
     def test_http_requests_serialize_exact_source_without_recipient(self):
@@ -96,7 +86,8 @@ class ContentTests(unittest.TestCase):
         with patch('urllib.request.OpenerDirector.open',side_effect=[
                 Response({'summary':'Syntetyczny opis.'}),Response({'destination':'archive'}),
                 Response({'events':[]})]) as call:
-            result=classify(mail)
+            summary=summarize(mail)
+            result=classify(mail,summary)
             from local_agentic_triage.events import core as events
             events.extract(mail)
         requests=[json.loads(c.args[0].data) for c in call.call_args_list]
@@ -105,15 +96,14 @@ class ContentTests(unittest.TestCase):
         self.assertEqual(json.loads(requests[1]['messages'][1]['content'])['mail'],json.loads(source))
         for request in requests:
             self.assertNotIn('recipient',json.dumps(request))
-        self.assertEqual(result,{'destination':'archive','summary':'Syntetyczny opis.'})
+        self.assertEqual(result,'archive')
 
-    def test_classify_does_not_revalidate_assembled_disposition(self):
+    def test_classify_does_not_revalidate_summary(self):
         import local_agentic_triage.classifier.core as core
         mail=parse(b'From: sender@example.invalid\n\nSynthetic',1000)
-        with patch.object(core,'chat_completion',side_effect=[
-                {'summary':'Opis.'},{'destination':'archive'}]), \
-             patch.object(core,'validate_disposition',side_effect=AssertionError('redundant validation')):
-            self.assertEqual(classify(mail),{'destination':'archive','summary':'Opis.'})
+        with patch.object(core,'chat_completion',return_value={'destination':'archive'}), \
+             patch.object(core,'validate_summary',side_effect=AssertionError('redundant validation')):
+            self.assertEqual(classify(mail,'Opis.'),'archive')
 
     def test_classifier_distinguishes_envelope_and_content_json(self):
         class Response:
@@ -123,30 +113,30 @@ class ContentTests(unittest.TestCase):
             def read(self,n=None): return self.payload
         mail=parse(b'Date: Wed, 01 Jan 2025 12:00:00 +0100\n\nbody',100)
         with patch('urllib.request.OpenerDirector.open',return_value=Response(b'not json')):
-            with self.assertRaises(ModelEnvelopeJsonInvalid): classify(mail)
+            with self.assertRaises(ModelEnvelopeJsonInvalid): summarize(mail)
         for envelope in ({}, {'choices':[]}, {'choices':[{}]},
                          {'choices':[{'finish_reason':'stop','message':{}}]},
                          {'choices':[{'finish_reason':'stop','message':False}]}):
             with self.subTest(envelope=envelope), \
                  patch('urllib.request.OpenerDirector.open',return_value=Response(json.dumps(envelope).encode())), \
                  self.assertRaises(ModelEnvelopeJsonInvalid):
-                classify(mail)
+                summarize(mail)
         envelope=json.dumps({'choices':[{'finish_reason':'stop','message':{'content':'not json'}}]}).encode()
         with patch('urllib.request.OpenerDirector.open',return_value=Response(envelope)):
-            with self.assertRaises(ModelContentJsonInvalid): classify(mail)
+            with self.assertRaises(ModelContentJsonInvalid): summarize(mail)
 
         envelope_cases=(b'{"a":1,"a":2}',b'NaN',b'\xff',{'not':'json text'})
         for payload in envelope_cases:
             with self.subTest(boundary='envelope',payload=type(payload).__name__):
                 with patch('urllib.request.OpenerDirector.open',return_value=Response(payload)):
-                    with self.assertRaises(ModelEnvelopeJsonInvalid) as caught: classify(mail)
+                    with self.assertRaises(ModelEnvelopeJsonInvalid) as caught: summarize(mail)
                 self.assertEqual(error_code(caught.exception),'model_envelope_json_invalid')
         content_cases=('{"a":1,"a":2}','NaN',{'not':'json text'})
         for content in content_cases:
             envelope=json.dumps({'choices':[{'finish_reason':'stop','message':{'content':content}}]}).encode()
             with self.subTest(boundary='content',content=type(content).__name__):
                 with patch('urllib.request.OpenerDirector.open',return_value=Response(envelope)):
-                    with self.assertRaises(ModelContentJsonInvalid) as caught: classify(mail)
+                    with self.assertRaises(ModelContentJsonInvalid) as caught: summarize(mail)
                 self.assertEqual(error_code(caught.exception),'model_content_json_invalid')
 
     def test_model_input_bounds_every_mail_field(self):

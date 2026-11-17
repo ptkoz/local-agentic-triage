@@ -18,17 +18,40 @@ class PipelineTests(unittest.TestCase):
         patcher = patch('local_agentic_triage.mail.pipeline.extract', return_value=[])
         self.extractor = patcher.start()
         self.addCleanup(patcher.stop)
+        self.summarizer = Mock(return_value='summary')
 
-    def disposition(self, *, destination, summary, extracted_events=None):
-        if extracted_events is not None:
-            self.extractor.return_value = extracted_events
-        return {'destination': destination, 'summary': summary}
+    def run_poll(self, *args, **kwargs):
+        kwargs.setdefault('summarizer', self.summarizer)
+        return poll(*args, **kwargs)
+
+    def run_diagnose(self, *args, **kwargs):
+        kwargs.setdefault('summarizer', self.summarizer)
+        return diagnose(*args, **kwargs)
 
     @staticmethod
     def event_result(*entries):
         return {'status': 'ok', 'results': list(entries)}
 
     # ── required behavioral tests ────────────────────────────────────────────
+
+    def test_poll_summarizes_then_classifies_with_the_summary(self):
+        box = Mock(validity='77')
+        box.candidates.return_value = ['9']
+        box.raw.return_value = b'From: a@b.invalid\n\nbody'
+        box.internal_date.return_value = '2026-10-31T01:27:00+01:00'
+        order = []
+        summarizer = Mock(side_effect=lambda mail: order.append('summarize') or 'Synthetic summary.')
+        classifier = Mock(side_effect=lambda mail, summary: order.append('classify') or 'archive')
+        runner = _runner_ok()
+
+        with self.assertLogs('local_agentic_triage', level='INFO'):
+            self.assertEqual(self.run_poll(box, make_config(), classifier, runner=runner,
+                                           summarizer=summarizer), 0)
+
+        self.assertEqual(order, ['summarize', 'classify'])
+        classifier.assert_called_once_with(summarizer.call_args.args[0], 'Synthetic summary.')
+        self.assertIn('Synthetic summary.', runner.call_args.kwargs['input'])
+        box.archive.assert_called_once_with('9')
 
     def test_mandatory_summary_for_leave(self):
         """Every mail, including leave, must produce a non-empty summary."""
@@ -37,10 +60,11 @@ class PipelineTests(unittest.TestCase):
         box.source_key.return_value = 'key'
         box.raw.return_value = b'From: a@b.invalid\n\nbody'
         box.internal_date.return_value = '2026-10-31T01:27:00+01:00'
-        classifier = Mock(return_value={'destination': 'leave', 'summary': 'Synthetic leave summary.'})
+        self.summarizer.return_value = 'Synthetic leave summary.'
+        classifier = Mock(return_value='leave')
         runner = _runner_ok()
         with self.assertLogs('local_agentic_triage', level='INFO'):
-            self.assertEqual(poll(box, make_config(), classifier, runner=runner), 0)
+            self.assertEqual(self.run_poll(box, make_config(), classifier, runner=runner), 0)
         box.leave.assert_called_once_with('9')
         runner.assert_called_once()
         sent_text = runner.call_args.kwargs['input']
@@ -52,7 +76,8 @@ class PipelineTests(unittest.TestCase):
         box.candidates.return_value = ['9']
         box.source_key.return_value = 'key'
         box.raw.return_value = b'Date: Sat, 31 Oct 2026 01:27:00 +0100\nFrom: a@b.invalid\n\nbody'
-        classifier = Mock(return_value={'destination': 'archive', 'summary': 'Archive summary.'})
+        self.summarizer.return_value = 'Archive summary.'
+        classifier = Mock(return_value='archive')
         order = []
         def capture_send(*args, **kwargs):
             order.append('send')
@@ -62,7 +87,7 @@ class PipelineTests(unittest.TestCase):
         box.archive.side_effect = capture_archive
         runner = Mock(side_effect=capture_send)
         with self.assertLogs('local_agentic_triage', level='INFO'):
-            self.assertEqual(poll(box, make_config(), classifier, runner=runner), 0)
+            self.assertEqual(self.run_poll(box, make_config(), classifier, runner=runner), 0)
         self.assertEqual(order, ['send', 'archive'])
 
     def test_notify_before_leave(self):
@@ -72,7 +97,8 @@ class PipelineTests(unittest.TestCase):
         box.source_key.return_value = 'key'
         box.raw.return_value = b'From: a@b.invalid\n\nbody'
         box.internal_date.return_value = '2026-10-31T01:27:00+01:00'
-        classifier = Mock(return_value={'destination': 'leave', 'summary': 'Leave summary.'})
+        self.summarizer.return_value = 'Leave summary.'
+        classifier = Mock(return_value='leave')
         order = []
         def capture_send(*args, **kwargs):
             order.append('send')
@@ -82,7 +108,7 @@ class PipelineTests(unittest.TestCase):
         box.leave.side_effect = capture_leave
         runner = Mock(side_effect=capture_send)
         with self.assertLogs('local_agentic_triage', level='INFO'):
-            self.assertEqual(poll(box, make_config(), classifier, runner=runner), 0)
+            self.assertEqual(self.run_poll(box, make_config(), classifier, runner=runner), 0)
         self.assertEqual(order, ['send', 'leave'])
 
     def test_send_failure_blocks_archive_disposition(self):
@@ -91,10 +117,10 @@ class PipelineTests(unittest.TestCase):
         box.candidates.return_value = ['9']
         box.source_key.return_value = 'key'
         box.raw.return_value = b'Date: Sat, 31 Oct 2026 01:27:00 +0100\nFrom: a@b.invalid\n\nbody'
-        classifier = Mock(return_value={'destination': 'archive', 'summary': 'summary'})
+        classifier = Mock(return_value='archive')
         runner = Mock(side_effect=RuntimeError('PRIVATE send error'))
         with self.assertLogs('local_agentic_triage', level='ERROR') as logs:
-            self.assertEqual(poll(box, make_config(), classifier, runner=runner), 1)
+            self.assertEqual(self.run_poll(box, make_config(), classifier, runner=runner), 1)
         box.archive.assert_not_called()
         output = '\n'.join(logs.output)
         self.assertNotIn('PRIVATE', output)
@@ -106,28 +132,30 @@ class PipelineTests(unittest.TestCase):
         box.source_key.return_value = 'key'
         box.raw.return_value = b'From: a@b.invalid\n\nbody'
         box.internal_date.return_value = '2026-10-31T01:27:00+01:00'
-        classifier = Mock(return_value={'destination': 'leave', 'summary': 'summary'})
+        classifier = Mock(return_value='leave')
         runner = Mock(side_effect=RuntimeError('PRIVATE send error'))
         with self.assertLogs('local_agentic_triage', level='ERROR') as logs:
-            self.assertEqual(poll(box, make_config(), classifier, runner=runner), 1)
+            self.assertEqual(self.run_poll(box, make_config(), classifier, runner=runner), 1)
         box.leave.assert_not_called()
         output = '\n'.join(logs.output)
         self.assertNotIn('PRIVATE', output)
 
     def test_summary_failure_causes_no_send_no_disposition(self):
-        """If classification fails, no Discord send and no IMAP mutation."""
+        """If summary generation fails, no Discord send and no IMAP mutation."""
         box = Mock(validity='77')
         box.candidates.return_value = ['9']
         box.source_key.return_value = 'key'
         box.raw.return_value = b'From: a@b.invalid\n\nbody'
         box.internal_date.return_value = '2026-10-31T01:27:00+01:00'
-        classifier = Mock(side_effect=ModelContentJsonInvalid('PRIVATE'))
+        self.summarizer.side_effect = ModelContentJsonInvalid('PRIVATE')
+        classifier = Mock()
         runner = _runner_ok()
         with self.assertLogs('local_agentic_triage', level='ERROR') as logs:
-            self.assertEqual(poll(box, make_config(), classifier, runner=runner), 1)
+            self.assertEqual(self.run_poll(box, make_config(), classifier, runner=runner), 1)
         runner.assert_not_called()
         box.leave.assert_not_called()
         box.archive.assert_not_called()
+        classifier.assert_not_called()
         self.assertNotIn('PRIVATE', '\n'.join(logs.output))
 
     def test_calendar_failure_does_not_block_send_or_disposition(self):
@@ -136,11 +164,11 @@ class PipelineTests(unittest.TestCase):
         box.candidates.return_value = ['9']
         box.source_key.return_value = 'key'
         box.raw.return_value = b'Date: Sat, 31 Oct 2026 01:27:00 +0100\nFrom: a@b.invalid\n\nbody'
-        classifier = Mock(return_value={'destination': 'archive', 'summary': 'summary'})
+        classifier = Mock(return_value='archive')
         events = Mock(side_effect=CommandError('event_command_failed', 17))
         runner = _runner_ok()
         with self.assertLogs('local_agentic_triage', level='ERROR') as logs:
-            self.assertEqual(poll(box, make_config(), classifier, events, runner=runner), 0)
+            self.assertEqual(self.run_poll(box, make_config(), classifier, events, runner=runner), 0)
         runner.assert_called_once()
         box.archive.assert_called_once_with('9')
         output = '\n'.join(logs.output)
@@ -154,11 +182,11 @@ class PipelineTests(unittest.TestCase):
         box.source_key.return_value = 'key'
         box.raw.return_value = b'From: noreply@vulcan.net.pl\n\nbody'
         box.internal_date.return_value = '2026-10-31T01:27:00+01:00'
-        classifier = Mock(return_value={'destination': 'leave', 'summary': 'summary'})
+        classifier = Mock(return_value='leave')
         runner = _runner_ok()
         with patch('os.posix_spawn', side_effect=OSError('PRIVATE spawn error')):
             with self.assertLogs('local_agentic_triage', level='ERROR') as logs:
-                self.assertEqual(poll(box, make_config(), classifier, runner=runner), 0)
+                self.assertEqual(self.run_poll(box, make_config(), classifier, runner=runner), 0)
         runner.assert_called_once()
         box.leave.assert_called_once_with('9')
         output = '\n'.join(logs.output)
@@ -177,10 +205,11 @@ class PipelineTests(unittest.TestCase):
                 box.candidates.return_value = ['9']
                 box.source_key.return_value = 'key'
                 box.raw.return_value = b'Date: Sat, 31 Oct 2026 01:27:00 +0100\nFrom: a@b.invalid\n\nbody'
-                classifier = Mock(return_value={'destination': destination, 'summary': 'Synthetic.'})
+                self.summarizer.return_value = 'Synthetic.'
+                classifier = Mock(return_value=destination)
                 runner = _runner_ok()
                 with self.assertLogs('local_agentic_triage', level='INFO'):
-                    self.assertEqual(poll(box, make_config(), classifier, runner=runner), 0)
+                    self.assertEqual(self.run_poll(box, make_config(), classifier, runner=runner), 0)
                 self.assertEqual(render_spy.call_count, 1)
                 call_destination = render_spy.call_args.args[1]
                 self.assertEqual(call_destination, destination)
@@ -195,10 +224,11 @@ class PipelineTests(unittest.TestCase):
         box.candidates.return_value = ['9']
         box.source_key.return_value = 'key'
         box.raw.return_value = b'Date: Sat, 31 Oct 2026 01:27:00 +0100\nFrom: a@b.invalid\n\nbody'
-        classifier = Mock(return_value={'destination': 'archive', 'summary': 'x' * 200})
+        self.summarizer.return_value = 'x' * 200
+        classifier = Mock(return_value='archive')
         runner = _runner_ok()
         with self.assertLogs('local_agentic_triage', level='ERROR'):
-            self.assertEqual(poll(box, make_config(discord_limit=100), classifier, runner=runner), 1)
+            self.assertEqual(self.run_poll(box, make_config(discord_limit=100), classifier, runner=runner), 1)
         runner.assert_not_called()
         box.archive.assert_not_called()
         box.leave.assert_not_called()
@@ -207,12 +237,13 @@ class PipelineTests(unittest.TestCase):
         box = Mock(validity='77')
         box.candidates.return_value = ['9']
         box.raw.return_value = b'Date: Sat, 31 Oct 2026 01:27:00 +0100\nFrom: noreply@vulcan.net.pl\n\nbody'
-        classifier = Mock(return_value={'destination': 'archive', 'summary': 'x' * 200})
+        self.summarizer.return_value = 'x' * 200
+        classifier = Mock(return_value='archive')
         events = Mock()
         runner = _runner_ok()
         with patch('local_agentic_triage.mail.pipeline.forward') as forward_mock, \
              self.assertLogs('local_agentic_triage', level='ERROR'):
-            self.assertEqual(poll(box, make_config(discord_limit=100), classifier,
+            self.assertEqual(self.run_poll(box, make_config(discord_limit=100), classifier,
                                   events, runner=runner), 1)
         forward_mock.assert_not_called()
         self.extractor.assert_not_called()
@@ -229,7 +260,7 @@ class PipelineTests(unittest.TestCase):
         box.raw.return_value = b'Date: Wed, 01 Jan 2025 12:00:00 +0100\nFrom: private@example.invalid\n\nsecret'
         classifier = Mock(side_effect=ModelContentJsonInvalid('PRIVATE OUTPUT'))
         with self.assertLogs('local_agentic_triage', level='INFO') as logs:
-            self.assertEqual(diagnose(box, make_config(), '9', classifier), 1)
+            self.assertEqual(self.run_diagnose(box, make_config(), '9', classifier), 1)
         output = '\n'.join(logs.output)
         self.assertIn('mail_diagnosis_failed uid=9 uidvalidity=77 stage=classify error=model_content_json_invalid', output)
         for private in ('private@example.invalid', 'secret', 'PRIVATE OUTPUT'):
@@ -244,7 +275,7 @@ class PipelineTests(unittest.TestCase):
         box.validity = '77'
         classifier = Mock()
         with self.assertLogs('local_agentic_triage', level='ERROR') as logs:
-            self.assertEqual(diagnose(box, make_config(), '9', classifier, expected_validity='76'), 1)
+            self.assertEqual(self.run_diagnose(box, make_config(), '9', classifier, expected_validity='76'), 1)
         self.assertIn('mail_diagnosis_identity_failed uid=9 error=uidvalidity_mismatch', '\n'.join(logs.output))
         box.raw.assert_not_called()
         box.internal_date.assert_not_called()
@@ -255,10 +286,12 @@ class PipelineTests(unittest.TestCase):
         box.validity = '77'
         box.raw.return_value = b'From: synthetic@example.invalid\n\nbody'
         box.internal_date.return_value = '2026-10-31T01:27:00+01:00'
-        classifier = Mock(return_value={'destination': 'leave', 'summary': 'synthetic'})
+        self.summarizer.return_value = 'synthetic'
+        classifier = Mock(return_value='leave')
         with self.assertLogs('local_agentic_triage', level='INFO') as logs:
-            self.assertEqual(diagnose(box, make_config(), '9', classifier, expected_validity='77'), 0)
+            self.assertEqual(self.run_diagnose(box, make_config(), '9', classifier, expected_validity='77'), 0)
         self.assertIn('mail_diagnosis_completed uid=9 uidvalidity=77 stage=classify', '\n'.join(logs.output))
+        classifier.assert_called_once_with(self.summarizer.call_args.args[0], 'synthetic')
         box.internal_date.assert_called_once_with('9')
         box.archive.assert_not_called()
         box.leave.assert_not_called()
@@ -271,11 +304,11 @@ class PipelineTests(unittest.TestCase):
             box.source_key.return_value = 'key'
             box.raw.return_value = raw
             box.internal_date.return_value = '2026-10-31T01:27:00+01:00'
-            classifier = Mock(return_value={'destination': 'archive', 'summary': 'summary'})
+            classifier = Mock(return_value='archive')
             events = Mock(return_value=self.event_result({'index': 0, 'outcome': 'skipped', 'reason': 'missing_date'}))
             runner = _runner_ok()
             with self.assertLogs('local_agentic_triage', level='INFO'):
-                self.assertEqual(poll(box, make_config(), classifier, events, runner=runner), 0)
+                self.assertEqual(self.run_poll(box, make_config(), classifier, events, runner=runner), 0)
             events.assert_called_once()
             box.archive.assert_called_once_with('9')
             box.leave.assert_not_called()
@@ -286,11 +319,11 @@ class PipelineTests(unittest.TestCase):
         box.source_key.return_value = 'key'
         box.raw.return_value = b'\nbody'
         box.internal_date.return_value = '2026-10-31T01:27:00+01:00'
-        classifier = Mock(return_value={'destination': 'leave', 'summary': 'summary'})
+        classifier = Mock(return_value='leave')
         events = Mock(side_effect=CommandError('event_command_failed', 17))
         runner = _runner_ok()
         with self.assertLogs('local_agentic_triage', level='ERROR') as logs:
-            self.assertEqual(poll(box, make_config(), classifier, events, runner=runner), 0)
+            self.assertEqual(self.run_poll(box, make_config(), classifier, events, runner=runner), 0)
         output = '\n'.join(logs.output)
         self.assertEqual(output.count('mail_event_failed'), 1)
         self.assertIn('mail_event_failed uid=9 error=event_command_failed returncode=17', output)
@@ -303,11 +336,11 @@ class PipelineTests(unittest.TestCase):
         box.candidates.return_value = ['9']
         box.source_key.return_value = 'key'
         box.raw.return_value = b'Date: Sat, 31 Oct 2026 01:27:00 +0100\nFrom: synthetic\n\nbody'
-        classifier = Mock(return_value={'destination': 'archive', 'summary': 'summary'})
+        classifier = Mock(return_value='archive')
         events = Mock(side_effect=CommandError('event_command_failed', 17))
         runner = _runner_ok()
         with self.assertLogs('local_agentic_triage', level='ERROR') as logs:
-            self.assertEqual(poll(box, make_config(), classifier, events, runner=runner), 0)
+            self.assertEqual(self.run_poll(box, make_config(), classifier, events, runner=runner), 0)
         output = '\n'.join(logs.output)
         self.assertEqual(output.count('mail_event_failed'), 1)
         self.assertIn('mail_event_failed uid=9 error=event_command_failed returncode=17', output)
@@ -322,7 +355,7 @@ class PipelineTests(unittest.TestCase):
         box.candidates.return_value = ['9']
         box.source_key.return_value = 'key'
         box.raw.return_value = b'Date: Sat, 31 Oct 2026 01:27:00 +0100\nFrom: secret@example.invalid\n\nprivate body'
-        classifier = Mock(return_value={'destination': 'leave', 'summary': 'summary'})
+        classifier = Mock(return_value='leave')
         self.extractor.return_value = [event]
         runner = _runner_ok()
         with patch('local_agentic_triage.events.calendar.Calendar.nearby', return_value=[]), \
@@ -330,7 +363,7 @@ class PipelineTests(unittest.TestCase):
              patch('subprocess.run', side_effect=AssertionError('decision subprocess')), \
              patch('urllib.request.OpenerDirector.open', side_effect=urllib.error.URLError('PRIVATE_SENTINEL')), \
              self.assertLogs('local_agentic_triage', level='ERROR') as logs:
-            self.assertEqual(poll(box, make_config(), classifier, process, runner=runner), 0)
+            self.assertEqual(self.run_poll(box, make_config(), classifier, process, runner=runner), 0)
         output = '\n'.join(logs.output)
         self.assertIn('mail_event_failed uid=9 error=model_request_failed', output)
         self.assertNotIn('returncode=', output)
@@ -347,12 +380,12 @@ class PipelineTests(unittest.TestCase):
         box.source_key.return_value = 'key'
         box.raw.return_value = b'From: secret@example.invalid\nSubject: private subject\n\nprivate body'
         box.internal_date.return_value = '2026-10-31T01:27:00+01:00'
-        classifier = Mock(return_value={'destination': 'leave', 'summary': 'summary'})
+        classifier = Mock(return_value='leave')
         self.extractor.return_value = [{'title': 'PRIVATE EVENT', 'start': '2026-11-01', 'end': None, 'date_note': None, 'location': None}]
         events = Mock(return_value={'status': 'ok', 'results': [{'index': 0, 'outcome': 'skipped', 'reason': 'too_soon'}]})
         runner = _runner_ok()
         with self.assertLogs('local_agentic_triage', level='INFO') as logs:
-            self.assertEqual(poll(box, make_config(), classifier, events, runner=runner), 0)
+            self.assertEqual(self.run_poll(box, make_config(), classifier, events, runner=runner), 0)
         output = '\n'.join(logs.output)
         self.assertIn('mail_event_result uid=9 index=0 outcome=skipped reason=too_soon', output)
         for private in ('PRIVATE EVENT', 'private subject', 'private body', 'secret@example.invalid', '2026-11-01'):
@@ -380,10 +413,11 @@ class PipelineTests(unittest.TestCase):
                     box.internal_date.return_value = '2026-10-31T01:27:00+01:00'
                     summary = 'synthetic' if destination == 'archive' else 'synthetic leave'
                     self.extractor.return_value = [event]
-                    classifier = Mock(return_value={'destination': destination, 'summary': summary})
+                    self.summarizer.return_value = summary
+                    classifier = Mock(return_value=destination)
                     runner = _runner_ok()
                     with self.assertLogs('local_agentic_triage', level='INFO') as logs:
-                        self.assertEqual(poll(box, make_config(), classifier, Mock(return_value=result), runner=runner), 0)
+                        self.assertEqual(self.run_poll(box, make_config(), classifier, Mock(return_value=result), runner=runner), 0)
                     output = '\n'.join(logs.output)
                     self.assertNotIn('mail_event_result', output)
                     self.assertEqual(output.count('mail_event_failed'), 1)
@@ -408,7 +442,7 @@ class PipelineTests(unittest.TestCase):
         events = Mock()
         runner = _runner_ok()
         with self.assertLogs('local_agentic_triage', level='ERROR') as logs:
-            self.assertEqual(poll(box, make_config(), classifier, events, runner=runner), 1)
+            self.assertEqual(self.run_poll(box, make_config(), classifier, events, runner=runner), 1)
         output = '\n'.join(logs.output)
         self.assertIn('uid=9 uidvalidity=77 stage=read error=value_error', output)
         self.assertNotIn('PRIVATE', output)
@@ -428,7 +462,7 @@ class PipelineTests(unittest.TestCase):
         events = Mock()
         runner = _runner_ok()
         with self.assertLogs('local_agentic_triage', level='INFO') as logs:
-            self.assertEqual(poll(box, make_config(), classifier, events, runner=runner), 1)
+            self.assertEqual(self.run_poll(box, make_config(), classifier, events, runner=runner), 1)
         output = '\n'.join(logs.output)
         for expected in ('mail_poll_started', 'mail_candidates_discovered count=1',
                          'mail_item_started item=1 total=1 uid=9 uidvalidity=77',

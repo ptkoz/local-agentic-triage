@@ -21,8 +21,6 @@ SUMMARY_SCHEMA=response_schema(__package__,'summary')
 class ModelEnvelopeJsonInvalid(ValueError): pass
 class ModelContentJsonInvalid(ValueError): pass
 
-def prompt(): return files(__package__).joinpath('prompt.md').read_text(encoding='utf-8')
-
 def bounded_string(value,budget):
     if not isinstance(value,str): raise ValueError('mail field type')
     encoded=lambda text:len(json.dumps(text,ensure_ascii=False).encode())
@@ -71,23 +69,6 @@ def timestamp(value):
         if not re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(?::[0-9]{2}(?:\.[0-9]+)?)?(?:Z|[+-][0-9]{2}:[0-9]{2})',value): raise ValueError('date format')
         dt=datetime.fromisoformat(value)
         if 'T' not in value or dt.tzinfo is None: raise ValueError('date timezone')
-
-def validate(obj):
-    if not isinstance(obj,dict) or set(obj)!={'destination','summary','events'}: raise ValueError('classification keys')
-    if obj['destination'] not in ('leave','archive'): raise ValueError('destination')
-    if not isinstance(obj['summary'],str) or not obj['summary']: raise ValueError('summary')
-    if not isinstance(obj['events'],list): raise ValueError('events type')
-    for e in obj['events']:
-        if not isinstance(e,dict) or set(e)!={'title','start','end','date_note'}: raise ValueError('event keys')
-        if not isinstance(e['title'],str) or not e['title'].strip(): raise ValueError('event title')
-        if e['date_note'] is not None and (not isinstance(e['date_note'],str) or not e['date_note'].strip()): raise ValueError('date note')
-        timestamp(e['start']); timestamp(e['end'])
-        if e['end'] is not None:
-            if e['start'] is None or (len(e['start'])==10) != (len(e['end'])==10): raise ValueError('event range')
-            if len(e['start'])==10:
-                if e['end']<e['start']: raise ValueError('event order')
-            elif datetime.fromisoformat(e['end'])<=datetime.fromisoformat(e['start']): raise ValueError('event order')
-    return obj
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self,*args,**kwargs): raise ValueError('model redirect forbidden')
@@ -140,22 +121,20 @@ def validate_summary(obj):
     return obj
 
 def validate_disposition(obj):
-    if not isinstance(obj,dict) or set(obj)!={'destination','summary'}:
-        raise ValueError('classification keys')
-    validate_destination({'destination':obj['destination']})
+    if obj not in ('leave','archive'):
+        raise ValueError('destination')
     return obj
 
-def classify(mail):
+def summarize(mail):
     source=mail_source(mail)
-    summary=validate_summary(chat_completion([
+    return validate_summary(chat_completion([
         {'role':'system','content':summary_prompt()},
         {'role':'user','content':compact_json(source)},
     ],SUMMARY_SCHEMA))['summary']
-    destination=validate_destination(chat_completion([
+
+def classify(mail,summary):
+    source=mail_source(mail)
+    return validate_destination(chat_completion([
         {'role':'system','content':disposition_prompt()},
         {'role':'user','content':json.dumps({'summary':summary,'mail':source},ensure_ascii=False)},
     ],CLASSIFICATION_SCHEMA))['destination']
-    return {
-        'destination':destination,
-        'summary':summary,
-    }

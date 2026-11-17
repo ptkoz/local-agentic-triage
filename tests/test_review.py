@@ -113,12 +113,14 @@ class ReviewTests(unittest.TestCase):
         box.source_key.return_value = 'imap:test-account:Test%20Inbox:77:9'
         box.raw.return_value = (b'Date: Sat, 31 Oct 2026 01:27:00 +0100\n'
                                 b'From: Synthetic Sender <sender@example.invalid>\n\nSynthetic body')
-        classifier = Mock(return_value={'destination': 'archive', 'summary': 'Synthetic summary'})
+        summarizer = Mock(return_value='Synthetic summary')
+        classifier = Mock(return_value='archive')
         self.extractor.return_value = [EVENT]
         event_processor = Mock(side_effect=RuntimeError('PRIVATE adapter output'))
         runner = Mock(return_value=Mock(returncode=0))
         with self.assertLogs('local_agentic_triage', level='ERROR') as logs:
-            self.assertEqual(poll(box, make_config(), classifier, event_processor, runner=runner), 0)
+            self.assertEqual(poll(box, make_config(), classifier, event_processor,
+                                  summarizer=summarizer, runner=runner), 0)
         output = '\n'.join(logs.output)
         self.assertEqual(output.count('mail_event_failed'), 1)
         self.assertIn('mail_event_failed uid=9 error=runtime_error', output)

@@ -17,7 +17,7 @@ tail -F ~/Library/Logs/local-agentic-triage/poll.log
 A poll error such as:
 
 ```text
-ERROR mail_item_failed item=23 uid=15318 uidvalidity=123 stage=classify error=model_content_json_invalid
+ERROR mail_item_failed item=23 uid=15318 uidvalidity=123 stage=summarize error=model_content_json_invalid
 ```
 
 contains only technical metadata:
@@ -25,14 +25,14 @@ contains only technical metadata:
 - `item` is the transient position in that poll's candidate list. Do not use it as an identifier.
 - `uid` is the IMAP UID in the configured Inbox. It is not global across mailboxes or a changed `UIDVALIDITY`.
 - `uidvalidity` is the mailbox generation that makes the UID historically unambiguous. Current builds include it in per-message start and failure logs.
-- `stage` is the last pipeline boundary entered. `classify` covers bounded mail-payload construction, the loopback DMR request, strict decoding of its response, and classification-schema validation.
+- `stage` is the last pipeline boundary entered. `summarize` covers the summary request and summary validation. `classify` covers the later destination request and disposition validation; it receives the already generated summary and returns only `archive` or `leave`.
 - `error` is generated from a controlled exception type. Exception text, subprocess input/output, headers, sender, subject, body, summary, and model output must never be printed or copied into logs or reports.
 
 Read the configured account and Inbox locally from the private `config.toml`; never copy their values into Git or a debugging report. `Mailbox.connect`, `require_uid`, and `source_key` in `mail/imap.py` show the mailbox selection, `UIDVALIDITY`, and UID-scoping rules.
 
-## Read-only replay of one classification
+## Read-only replay of summary and classification
 
-For an explicitly authorized investigation, replay only the read and local-classification stages:
+For an explicitly authorized investigation, replay only the read, summary, and local-classification stages:
 
 ```sh
 /absolute/path/to/python3.14 \
@@ -70,7 +70,7 @@ the installed application or restart its LaunchAgents.
 - verifies that the UID still exists, reads that message without setting flags, bounds the model payload, and calls only the fixed loopback summary and destination passes;
 - does not acquire the production poll lock, run Calendar/event decisions, set `\Flagged`/`Seen`, move mail, or send a notification;
 - logs only UID, UIDVALIDITY, stage, truncation field names, and a controlled error code;
-- returns 0 if classification currently succeeds and 1 if the replay fails.
+- returns 0 if both model stages currently succeed and 1 if either replay stage fails.
 
 Do not use `mail poll` for diagnosis. It has production side effects. Do not add temporary logging of private input or model output.
 

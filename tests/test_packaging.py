@@ -22,7 +22,6 @@ class PackagingTests(unittest.TestCase):
                                     capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             with zipfile.ZipFile(archive) as z:
-                self.assertIn('local_agentic_triage/classifier/prompt.md', z.namelist())
                 for prompt in ('classifier/destination.md', 'classifier/summary.md',
                                'events/extraction.md', 'events/duplicate.md', 'events/completion.md',
                                'classifier/destination.json', 'classifier/summary.json',
@@ -176,7 +175,6 @@ class PackagingTests(unittest.TestCase):
         expected = {
             'classifier/destination.json': '02cdef55c33c3cad5a51455b47ba4068242c5c81547d9a609fc871ca22d037c6',
             'classifier/destination.md': '387648d89455521af54121888be33c9ea4e6df2a69da181168105274f670db4a',
-            'classifier/prompt.md': '12a7044a41d3acc9b173ad69a71a55f3e8783399eaee291057460a1075aecf6c',
             'classifier/summary.json': '7778048986365c1f57273fbef05f9ff773310bac8ccc8f371357c5d8c392b06f',
             'classifier/summary.md': 'a16a8dfffbcc0852b41a9e3b00b2447622128568a2e13cc51cc1fd5030ceb233',
             'events/completion.json': '04110de9593868434971c4490d7b877202e055b5bbd25783afe7d9b5f0a4f85f',
