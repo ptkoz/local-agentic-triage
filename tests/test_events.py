@@ -68,14 +68,14 @@ class EventTests(unittest.TestCase):
         for banned in ('subprocess','urllib','stream-json','parse_stream_envelope','DELIMITER','MAX_STREAM_','--toolsets','query-file','[content truncated]'):
             self.assertNotIn(banned,text,banned)
         self.assertFalse(hasattr(events,'parse_stream_envelope'))
-        self.assertIs(events._chat_completion,classifier.chat_completion)
+        self.assertIs(events.helpers.chat_completion,classifier.chat_completion)
         transport=Path(classifier.__file__).read_text(encoding='utf-8')
         self.assertEqual(transport.count('ProxyHandler'),1)
         self.assertEqual(transport.count('build_opener'),1)
 
 
     def test_process_results_are_ordered_by_construction(self):
-        with patch.object(classifier_events, '_model_batch', return_value={'outcome': 'existing'}), \
+        with patch.object(classifier_events.helpers, 'chat_completion_with_payload', return_value={'outcome': 'existing'}), \
              patch('local_agentic_triage.events.calendar.Calendar.nearby', return_value=[]):
             result = process_events([EVENT, EVENT | {'title': 'Second', 'start': '2026-12-02'}],
                                     make_config())

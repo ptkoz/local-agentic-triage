@@ -216,14 +216,14 @@ class ContentTests(unittest.TestCase):
         mail=Mail(sender='s'*5000,sender_address='s'*5000,sent_date='2025-01-01T12:00:00+01:00',body='b'*20000,subject='t'*5000)
         context_bound_mail=fit_to_context(mail,10000)
         with patch.object(classifier_helpers,'chat_completion',side_effect=[
-                {'summary':'Opis.'},{'destination':'leave'}]) as chat, \
-             patch.object(events,'_chat_completion',return_value={'events':[]}) as extraction:
+                {'summary':'Opis.'},{'destination':'leave'},{'events':[]}]) as chat:
             classify(context_bound_mail,summarize(context_bound_mail))
             events.extract_events(context_bound_mail)
         source=classifier_input.serialize_mail(context_bound_mail)
-        summary_content,destination_content=(c.args[0][1]['content'] for c in chat.call_args_list)
+        summary_content,destination_content,extraction_content=(
+            c.args[0][1]['content'] for c in chat.call_args_list)
         self.assertEqual(summary_content,source)
-        self.assertEqual(extraction.call_args.args[0][1]['content'],source)
+        self.assertEqual(extraction_content,source)
         self.assertEqual(destination_content,
                          classifier_input.serialize_destination_input(context_bound_mail,'Opis.'))
         self.assertEqual(json.loads(destination_content),{'summary':'Opis.','mail':json.loads(source)})

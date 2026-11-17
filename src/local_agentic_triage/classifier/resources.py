@@ -1,5 +1,5 @@
-from importlib.resources import files as _files
-import json as _json
+from importlib.resources import files
+import json
 
 __all__ = (
     'SUMMARIZE_OUTPUT_SCHEMA',
@@ -16,7 +16,7 @@ __all__ = (
 
 
 def _output_schema(name):
-    return _json.loads(_files(__package__).joinpath(name).read_text(encoding='utf-8'))
+    return json.loads(files(__package__).joinpath(name).read_text(encoding='utf-8'))
 
 
 SUMMARIZE_OUTPUT_SCHEMA = _output_schema('summarize_output_schema.json')
@@ -27,20 +27,20 @@ COMPLETE_EVENT_OUTPUT_SCHEMA = _output_schema('complete_event_output_schema.json
 
 
 def summarize_prompt():
-    return _files(__package__).joinpath('summarize_prompt.md').read_text(encoding='utf-8')
+    return files(__package__).joinpath('summarize_prompt.md').read_text(encoding='utf-8')
 
 
 def classify_prompt():
-    return _files(__package__).joinpath('classify_prompt.md').read_text(encoding='utf-8')
+    return files(__package__).joinpath('classify_prompt.md').read_text(encoding='utf-8')
 
 
 def extract_events_prompt():
-    return _files(__package__).joinpath('extract_events_prompt.md').read_text(encoding='utf-8')
+    return files(__package__).joinpath('extract_events_prompt.md').read_text(encoding='utf-8')
 
 
 def is_duplicate_prompt():
-    return _files(__package__).joinpath('is_duplicate_prompt.md').read_text(encoding='utf-8')
+    return files(__package__).joinpath('is_duplicate_prompt.md').read_text(encoding='utf-8')
 
 
 def complete_event_prompt():
-    return _files(__package__).joinpath('complete_event_prompt.md').read_text(encoding='utf-8')
+    return files(__package__).joinpath('complete_event_prompt.md').read_text(encoding='utf-8')

@@ -11,6 +11,12 @@ LOCAL_MODEL_CONTEXT_TOKEN_LIMIT=16384
 LOCAL_MODEL_OUTPUT_TOKEN_LIMIT=2048
 # Maximum duration of one request to the loopback model endpoint.
 LOCAL_MODEL_REQUEST_TIMEOUT_SECONDS=300
+# Reserved context for request framing that is not part of the serialized payload.
+LOCAL_MODEL_REQUEST_OVERHEAD_BYTES=1024
+
+
+class ModelRequestFailed(RuntimeError):
+    pass
 
 class ModelEnvelopeJsonInvalid(ValueError):
     pass
@@ -22,6 +28,25 @@ class ModelContentJsonInvalid(ValueError):
 
 def compact_json(value):
     return json.dumps(value,ensure_ascii=False,separators=(',',':'))
+
+
+def chat_completion_with_payload(system,response_format,payload,payload_name):
+    user=compact_json(payload)
+    reserved=(len(system.encode('utf-8'))
+              + len(json.dumps(response_format).encode('utf-8'))
+              + LOCAL_MODEL_REQUEST_OVERHEAD_BYTES
+              + LOCAL_MODEL_OUTPUT_TOKEN_LIMIT)
+    budget=LOCAL_MODEL_CONTEXT_TOKEN_LIMIT-reserved
+    if budget<1: raise RuntimeError(f'{payload_name}_payload_budget')
+    if len(user.encode('utf-8'))>budget:
+        raise ValueError(f'{payload_name}_payload_size')
+    try:
+        return chat_completion([
+            {'role':'system','content':system},
+            {'role':'user','content':user},
+        ],response_format)
+    except OSError:
+        raise ModelRequestFailed from None
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):

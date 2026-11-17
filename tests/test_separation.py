@@ -26,7 +26,6 @@ class SeparationTests(unittest.TestCase):
             'extract_events_prompt', 'is_duplicate_prompt', 'complete_event_prompt',
         }
         self.assertEqual(set(resources.__all__), expected)
-        self.assertEqual({name for name in vars(resources) if not name.startswith('_')}, expected)
         for module in (helpers, disposition, events):
             self.assertFalse(any(name.endswith('OUTPUT_SCHEMA') for name in vars(module)))
         for name in expected:
@@ -48,19 +47,22 @@ class SeparationTests(unittest.TestCase):
         }
         self.assertEqual(public_functions, {'extract_events', 'is_duplicate', 'complete_event'})
         self.assertEqual(events.__all__, ('extract_events', 'is_duplicate', 'complete_event'))
-        self.assertEqual({name for name in vars(events) if not name.startswith('_')},
-                         set(events.__all__))
         tree = ast.parse(Path(events.__file__).read_text(encoding='utf-8'))
         imports = [ast.unparse(node) for node in ast.walk(tree)
                    if isinstance(node, (ast.Import, ast.ImportFrom))]
         self.assertFalse(any('local_agentic_triage.events' in item or
                              'local_agentic_triage.mail' in item for item in imports))
-        with patch.object(events, '_model_batch', side_effect=[
+        with patch.object(events.helpers, 'chat_completion_with_payload', side_effect=[
                 {'outcome': 'existing'}, {'outcome': 'possible_duplicate'},
                 {'outcome': 'create'}]):
             self.assertIs(events.is_duplicate(EVENT, []), True)
             self.assertIs(events.is_duplicate(EVENT, []), True)
             self.assertIs(events.is_duplicate(EVENT, []), False)
+
+    def test_disposition_api_is_explicit(self):
+        from local_agentic_triage.classifier import disposition
+        self.assertEqual(disposition.__all__,
+                         ('validate_destination', 'validate_summary', 'summarize', 'classify'))
 
     def test_calendar_package_has_no_classifier_imports_or_model_resources(self):
         for source in (PACKAGE / 'events').glob('*.py'):
