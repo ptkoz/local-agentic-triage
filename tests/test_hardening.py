@@ -31,6 +31,6 @@ class HardeningTests(unittest.TestCase):
     def test_invalid_config_values(self):
         with tempfile.TemporaryDirectory() as d:
             p=Path(d)/'config.toml'
-            for value in ('inbox=""','database="relative.sqlite"','discord_limit=0','timeout=true','credential_command=[]','imap_host="https://bad"'):
+            for value in ('inbox=""','discord_limit=0','timeout=true','credential_command=[]','imap_host="https://bad"'):
                 p.write_text(value)
                 with self.subTest(value=value),self.assertRaises(ValueError): load(p)

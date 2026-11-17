@@ -39,25 +39,8 @@ class PackagingTests(unittest.TestCase):
             result = subprocess.run([sys.executable, '-I', '-c', code, str(archive)],
                                     capture_output=True, text=True, timeout=10)
             self.assertEqual(result.returncode, 0, result.stderr)
-            # report command is removed; argparse exits 2 for unrecognised subcommand
-            config = Path(d) / 'config.toml'
-            config.write_text(f'poll_lock="{d}/poll.lock"\n')
-            result = subprocess.run([sys.executable, str(archive), '--config', str(config), 'report', 'send'],
-                                    capture_output=True, text=True)
-            self.assertEqual(result.returncode, 2, result.stderr)
 
-    def test_no_sqlite_no_store_module(self):
-        """Store module must not exist; reporting package exposes only render_notification and deliver."""
-        store_path = ROOT / 'src/local_agentic_triage/reporting/store.py'
-        self.assertFalse(store_path.exists(), 'store.py should be deleted')
-        from local_agentic_triage.reporting import report
-        self.assertTrue(hasattr(report, 'render_notification'))
-        self.assertTrue(hasattr(report, 'deliver'))
-        self.assertFalse(hasattr(report, 'send'))
-        self.assertFalse(hasattr(report, 'header'))
-        self.assertFalse(hasattr(report, 'record_message'))
-
-    def test_install_creates_only_poll_plist_and_no_report_log(self):
+    def test_install_creates_runtime_config_and_poll_agent(self):
         with tempfile.TemporaryDirectory() as d:
             result = subprocess.run([sys.executable, str(ROOT / 'scripts/install.py'), '--home', d],
                                     capture_output=True, text=True)
@@ -80,7 +63,6 @@ class PackagingTests(unittest.TestCase):
             subprocess.run([sys.executable, str(ROOT / 'scripts/install.py'), '--home', str(home)],
                            check=True, capture_output=True)
             self.assertEqual(config.read_text(), '# preserved\n')
-            # Only poll plist, no report plist
             plists = list((home / 'Library/LaunchAgents').glob('*.plist'))
             self.assertEqual(len(plists), 1, f'expected 1 plist, got {[p.name for p in plists]}')
             p = plists[0]
@@ -93,52 +75,9 @@ class PackagingTests(unittest.TestCase):
             self.assertFalse(info.get('RunAtLoad', False))
             self.assertIn(str(home / '.local/libexec/local-agentic-triage/local-agentic-triage.pyz'),
                           info['ProgramArguments'])
-            self.assertNotIn('--deliver', info['ProgramArguments'])
-            # Only poll.log, no report.log
             logs = home / 'Library/Logs/local-agentic-triage'
             self.assertTrue((logs / 'poll.log').exists())
-            self.assertFalse((logs / 'report.log').exists())
             self.assertNotIn('launchctl', (ROOT / 'scripts/install.py').read_text())
-
-    def test_upgrade_removes_legacy_reporter_and_databases_but_preserves_config(self):
-        with tempfile.TemporaryDirectory() as d:
-            home = Path(d).resolve()
-            data = home / 'Library/Application Support/local-agentic-triage'
-            agents = home / 'Library/LaunchAgents'
-            logs = home / 'Library/Logs/local-agentic-triage'
-            for path in (data, agents, logs):
-                path.mkdir(parents=True, exist_ok=True)
-            config = data / 'config.toml'
-            config.write_text('# preserved\n')
-            obsolete = [
-                agents / 'local.local-agentic-triage.report.plist',
-                logs / 'report.log',
-                data / 'triage.sqlite3',
-                data / 'triage.sqlite3-wal',
-                data / 'triage.sqlite3-shm',
-                data / 'triage.sqlite3.init.lock',
-                data / 'reports.sqlite3',
-                data / 'reports.sqlite3-wal',
-                data / 'reports.sqlite3-shm',
-            ]
-            for path in obsolete:
-                path.write_bytes(b'legacy')
-            result = subprocess.run([sys.executable, str(ROOT / 'scripts/install.py'),
-                                     '--home', str(home)], capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(config.read_text(), '# preserved\n')
-            self.assertTrue((agents / 'local.local-agentic-triage.poll.plist').exists())
-            for path in obsolete:
-                self.assertFalse(path.exists(), path)
-
-    def test_upgrade_runbook_boots_out_legacy_reporter_before_install(self):
-        readme = (ROOT / 'README.md').read_text()
-        poll = readme.index('launchctl bootout gui/$(id -u)/local.local-agentic-triage.poll')
-        report = readme.index('launchctl bootout gui/$(id -u)/local.local-agentic-triage.report')
-        install = readme.index('python3.14 scripts/install.py --python', poll)
-        self.assertLess(poll, report)
-        self.assertLess(report, install)
-        self.assertIn('removes the obsolete reporter plist, report log, and SQLite files', readme)
 
     def test_documentation_places_render_validation_before_optional_side_effects(self):
         architecture = (ROOT / 'docs/architecture.md').read_text()

@@ -47,23 +47,6 @@ config, and never loads or starts services. `--home /temporary/home` supports
 isolated review. Templates use `@HOME@` and `@PYTHON@`; rendering is data-safe
 for arbitrary home paths.
 
-### Upgrade from the scheduled-reporter release
-
-Stop both legacy jobs before installing so the old poller cannot keep SQLite open
-and deleting the reporter plist does not leave its loaded 08:00/18:00 job alive:
-
-```sh
-launchctl bootout gui/$(id -u)/local.local-agentic-triage.poll
-launchctl bootout gui/$(id -u)/local.local-agentic-triage.report
-python3.14 scripts/install.py --python /absolute/path/to/python3.14
-```
-
-`bootout` may report that a job is absent when it was not loaded. The installer
-preserves the existing config, accepts its obsolete reporting keys as ignored
-compatibility input, and removes the obsolete reporter plist, report log, and SQLite files.
-Bootstrap only `local.local-agentic-triage.poll.plist` afterward and verify that
-`launchctl print gui/$(id -u)/local.local-agentic-triage.report` does not find a job.
-
 The generated config intentionally fails closed until every operational
 placeholder is replaced. Set all of these explicitly:
 

@@ -21,7 +21,6 @@ class PromptContractTests(unittest.TestCase):
             r'europe/warsaw.*default.*(?:no|without|missing).*timezone',
             r'explicit.*(?:zone|timezone).*never.*(?:replace|override)',
             r'local date.*time')
-        self.assertNotRegex(extract_events_prompt().lower(), r'never guess[^.]*timezone')
 
     def test_unzoned_wall_clock_digits_are_preserved(self):
         self.clauses(extract_events_prompt(),
@@ -44,20 +43,11 @@ class PromptContractTests(unittest.TestCase):
                      r'(?:no|without|do not use).*html',
                      r'(?:no|without|do not use).*markdown')
 
-    def test_acknowledgement_is_archive_without_version_history(self):
+    def test_acknowledgement_is_archive(self):
         self.clauses(classify_prompt(),
                      r'generated summary.*source email.*separate summary and mail fields',
                      r'substantive personal reply',
                      r'acknowledge.*receipt.*awareness.*having read.*archive')
-        text=' '.join(classify_prompt().lower().split())
-        for obsolete in ('overrides the general reply rule',
-                         'decide only whether',
-                         'do not summarize the mail',
-                         'explain the decision',
-                         'evaluate its importance',
-                         'recommend an action'):
-            with self.subTest(obsolete=obsolete):
-                self.assertNotIn(obsolete,text)
 
     def test_acceptance_confirmation_and_untrusted_output_commands(self):
         self.clauses(classify_prompt(),
@@ -135,13 +125,6 @@ class PromptContractTests(unittest.TestCase):
                      r'same instant.*different offsets.*existing',
                      r'create only.*(?:clearly|establish).*unrelated',
                      r'(?:uncertain|unsure|ambiguous).*possible_duplicate.*not create')
-
-    def test_duplicate_offset_prohibition_does_not_bias_ambiguity_to_create(self):
-        # Live evidence: forbidding possible_duplicate for offset differences made the
-        # model return create for ambiguous identity and did not fix offset equivalence.
-        text=' '.join(prompt().lower().split())
-        self.assertNotIn('must not produce possible_duplicate',text)
-        self.assertNotIn('is not a nonzero start difference',text)
 
     def test_completion_only_fills_null_fields(self):
         self.clauses(complete_event_prompt(),

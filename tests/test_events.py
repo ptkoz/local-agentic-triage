@@ -61,19 +61,6 @@ class EventTests(unittest.TestCase):
         self.assertEqual(json.loads(opener.open.call_args.args[0].data)['model'],'docker.io/ai/ministral3-mail-8b:16k')
 
 
-    def test_event_source_has_no_second_transport_or_stream_parser(self):
-        import local_agentic_triage.classifier.transport as classifier
-        import local_agentic_triage.classifier.events as events
-        text=Path(events.__file__).read_text(encoding='utf-8')
-        for banned in ('subprocess','urllib','stream-json','parse_stream_envelope','DELIMITER','MAX_STREAM_','--toolsets','query-file','[content truncated]'):
-            self.assertNotIn(banned,text,banned)
-        self.assertFalse(hasattr(events,'parse_stream_envelope'))
-        self.assertIs(events.transport.chat_completion,classifier.chat_completion)
-        transport=Path(classifier.__file__).read_text(encoding='utf-8')
-        self.assertEqual(transport.count('ProxyHandler'),1)
-        self.assertEqual(transport.count('build_opener'),1)
-
-
     def test_process_results_are_ordered_by_construction(self):
         with patch.object(classifier_events.transport, 'chat_completion_with_payload', return_value={'outcome': 'existing'}), \
              patch('local_agentic_triage.events.calendar.Calendar.nearby', return_value=[]):

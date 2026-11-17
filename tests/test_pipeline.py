@@ -93,7 +93,6 @@ class PipelineTests(unittest.TestCase):
         import local_agentic_triage.mail.pipeline as pipeline
         source=inspect.getsource(pipeline)
         self.assertGreaterEqual(source.count('context_bound_mail = fit_to_context('),2)
-        self.assertNotIn('mail_content_truncated',source)
 
     def test_notification_and_vulcan_use_the_original_mail(self):
         sender = 'Dziennik ' + 'V' * 1100 + ' <noreply@vulcan.net.pl>'
@@ -108,14 +107,12 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(self.run_poll(box, config, Mock(return_value='leave'), runner=runner), 0)
         sent_text = runner.call_args.kwargs['input']
         self.assertIn(f'Od **{sender}** z dnia', sent_text)
-        self.assertNotIn('[content truncated]', sent_text)
         delegate.assert_called_once_with('9', raw, config)
 
     def test_mandatory_summary_for_leave(self):
         """Every mail, including leave, must produce a non-empty summary."""
         box = Mock(validity='77')
         box.candidates.return_value = ['9']
-        box.source_key.return_value = 'key'
         box.raw.return_value = b'From: a@b.invalid\n\nbody'
         box.internal_date.return_value = '2026-10-31T01:27:00+01:00'
         self.summarizer.return_value = 'Synthetic leave summary.'
@@ -132,7 +129,6 @@ class PipelineTests(unittest.TestCase):
         """Discord notification is sent before archive IMAP mutation."""
         box = Mock(validity='77')
         box.candidates.return_value = ['9']
-        box.source_key.return_value = 'key'
         box.raw.return_value = b'Date: Sat, 31 Oct 2026 01:27:00 +0100\nFrom: a@b.invalid\n\nbody'
         self.summarizer.return_value = 'Archive summary.'
         classifier = Mock(return_value='archive')
@@ -152,7 +148,6 @@ class PipelineTests(unittest.TestCase):
         """Discord notification is sent before leave IMAP mutation."""
         box = Mock(validity='77')
         box.candidates.return_value = ['9']
-        box.source_key.return_value = 'key'
         box.raw.return_value = b'From: a@b.invalid\n\nbody'
         box.internal_date.return_value = '2026-10-31T01:27:00+01:00'
         self.summarizer.return_value = 'Leave summary.'
@@ -173,7 +168,6 @@ class PipelineTests(unittest.TestCase):
         """If Discord send fails, archive IMAP mutation does not happen."""
         box = Mock(validity='77')
         box.candidates.return_value = ['9']
-        box.source_key.return_value = 'key'
         box.raw.return_value = b'Date: Sat, 31 Oct 2026 01:27:00 +0100\nFrom: a@b.invalid\n\nbody'
         classifier = Mock(return_value='archive')
         runner = Mock(side_effect=RuntimeError('PRIVATE send error'))
@@ -187,7 +181,6 @@ class PipelineTests(unittest.TestCase):
         """If Discord send fails, leave IMAP mutation does not happen."""
         box = Mock(validity='77')
         box.candidates.return_value = ['9']
-        box.source_key.return_value = 'key'
         box.raw.return_value = b'From: a@b.invalid\n\nbody'
         box.internal_date.return_value = '2026-10-31T01:27:00+01:00'
         classifier = Mock(return_value='leave')
@@ -202,7 +195,6 @@ class PipelineTests(unittest.TestCase):
         """If summary generation fails, no Discord send and no IMAP mutation."""
         box = Mock(validity='77')
         box.candidates.return_value = ['9']
-        box.source_key.return_value = 'key'
         box.raw.return_value = b'From: a@b.invalid\n\nbody'
         box.internal_date.return_value = '2026-10-31T01:27:00+01:00'
         self.summarizer.side_effect = ModelContentJsonInvalid('PRIVATE')
@@ -220,7 +212,6 @@ class PipelineTests(unittest.TestCase):
         """Calendar enrichment failure must not block notification or disposition."""
         box = Mock(validity='77')
         box.candidates.return_value = ['9']
-        box.source_key.return_value = 'key'
         box.raw.return_value = b'Date: Sat, 31 Oct 2026 01:27:00 +0100\nFrom: a@b.invalid\n\nbody'
         classifier = Mock(return_value='archive')
         events = Mock(side_effect=CommandError('event_command_failed', 17))
@@ -237,7 +228,6 @@ class PipelineTests(unittest.TestCase):
         """eduVULCAN spawn failure must not block notification or disposition."""
         box = Mock(validity='77')
         box.candidates.return_value = ['9']
-        box.source_key.return_value = 'key'
         box.raw.return_value = b'From: noreply@vulcan.net.pl\n\nbody'
         box.internal_date.return_value = '2026-10-31T01:27:00+01:00'
         classifier = Mock(return_value='leave')
@@ -252,35 +242,29 @@ class PipelineTests(unittest.TestCase):
         self.assertNotIn('PRIVATE', output)
         self.assertNotIn('mail_item_failed', output)
 
-    def test_renderer_receives_destination_and_is_neutral_for_both(self):
-        """render_notification is called with destination; format is neutral for archive and leave."""
+    def test_renderer_receives_mail_fields_and_limit(self):
         from local_agentic_triage.reporting.report import render_notification
+        box = Mock(validity='77')
+        box.candidates.return_value = ['9']
+        box.raw.return_value = b'Date: Sat, 31 Oct 2026 01:27:00 +0100\nFrom: a@b.invalid\n\nbody'
+        self.summarizer.return_value = 'Synthetic.'
+        classifier = Mock(return_value='archive')
+        runner = _runner_ok()
         with patch('local_agentic_triage.mail.pipeline.render_notification',
-                   wraps=render_notification) as render_spy:
-            for destination in ('archive', 'leave'):
-                render_spy.reset_mock()
-                box = Mock(validity='77')
-                box.candidates.return_value = ['9']
-                box.source_key.return_value = 'key'
-                box.raw.return_value = b'Date: Sat, 31 Oct 2026 01:27:00 +0100\nFrom: a@b.invalid\n\nbody'
-                self.summarizer.return_value = 'Synthetic.'
-                classifier = Mock(return_value=destination)
-                runner = _runner_ok()
-                with self.assertLogs('local_agentic_triage', level='INFO'):
-                    self.assertEqual(self.run_poll(box, make_config(), classifier, runner=runner), 0)
-                self.assertEqual(render_spy.call_count, 1)
-                call_destination = render_spy.call_args.args[1]
-                self.assertEqual(call_destination, destination)
-                sent_text = runner.call_args.kwargs['input']
-                # Neutral format: not labeled "Archiwum"
-                self.assertNotIn('**Archiwum**', sent_text)
-                self.assertIn('Synthetic.', sent_text)
+                   wraps=render_notification) as render_spy, \
+             self.assertLogs('local_agentic_triage', level='INFO'):
+            self.assertEqual(self.run_poll(box, make_config(), classifier, runner=runner), 0)
+        render_spy.assert_called_once_with(
+            {'sender': 'a@b.invalid', 'summary': 'Synthetic.',
+             'sent_at': '2026-10-31T01:27:00+01:00'},
+            make_config().discord_limit,
+        )
+        self.assertIn('Synthetic.', runner.call_args.kwargs['input'])
 
     def test_oversize_notification_blocks_send_and_disposition(self):
         """If the rendered notification exceeds discord_limit, no send and no disposition."""
         box = Mock(validity='77')
         box.candidates.return_value = ['9']
-        box.source_key.return_value = 'key'
         box.raw.return_value = b'Date: Sat, 31 Oct 2026 01:27:00 +0100\nFrom: a@b.invalid\n\nbody'
         self.summarizer.return_value = 'x' * 200
         classifier = Mock(return_value='archive')
@@ -359,7 +343,6 @@ class PipelineTests(unittest.TestCase):
                     b'Date: Fri, 31 Oct 2026 01:27:00\nFrom: sender\n\nbody'):
             box = Mock(validity='77')
             box.candidates.return_value = ['9']
-            box.source_key.return_value = 'key'
             box.raw.return_value = raw
             box.internal_date.return_value = '2026-10-31T01:27:00+01:00'
             classifier = Mock(return_value='archive')
@@ -374,7 +357,6 @@ class PipelineTests(unittest.TestCase):
     def test_event_command_failure_is_absorbed_and_logs_only_safe_failure(self):
         box = Mock(validity='77')
         box.candidates.return_value = ['9']
-        box.source_key.return_value = 'key'
         box.raw.return_value = b'\nbody'
         box.internal_date.return_value = '2026-10-31T01:27:00+01:00'
         classifier = Mock(return_value='leave')
@@ -392,7 +374,6 @@ class PipelineTests(unittest.TestCase):
     def test_archive_event_command_failure_logs_bounded_returncode_and_archives(self):
         box = Mock(validity='77')
         box.candidates.return_value = ['9']
-        box.source_key.return_value = 'key'
         box.raw.return_value = b'Date: Sat, 31 Oct 2026 01:27:00 +0100\nFrom: synthetic\n\nbody'
         classifier = Mock(return_value='archive')
         events = Mock(side_effect=CommandError('event_command_failed', 17))
@@ -411,7 +392,6 @@ class PipelineTests(unittest.TestCase):
         event = {'title': 'PRIVATE EVENT', 'start': '2099-12-01', 'end': None, 'date_note': None, 'location': None}
         box = Mock(validity='77')
         box.candidates.return_value = ['9']
-        box.source_key.return_value = 'key'
         box.raw.return_value = b'Date: Sat, 31 Oct 2026 01:27:00 +0100\nFrom: secret@example.invalid\n\nprivate body'
         classifier = Mock(return_value='leave')
         self.extractor.return_value = [event]
@@ -435,7 +415,6 @@ class PipelineTests(unittest.TestCase):
     def test_event_results_are_logged_without_private_event_data(self):
         box = Mock(validity='77')
         box.candidates.return_value = ['9']
-        box.source_key.return_value = 'key'
         box.raw.return_value = b'From: secret@example.invalid\nSubject: private subject\n\nprivate body'
         box.internal_date.return_value = '2026-10-31T01:27:00+01:00'
         classifier = Mock(return_value='leave')
@@ -453,7 +432,6 @@ class PipelineTests(unittest.TestCase):
     def test_invalid_internal_date_stops_before_private_processing(self):
         box = Mock(validity='77')
         box.candidates.return_value = ['9']
-        box.source_key.return_value = 'key'
         box.raw.return_value = b'From: sender\n\nbody'
         box.internal_date.side_effect = ValueError('PRIVATE INTERNAL DATE')
         classifier = Mock()
@@ -473,7 +451,6 @@ class PipelineTests(unittest.TestCase):
     def test_info_and_error_logs_identify_action_without_private_data(self):
         box = Mock(validity='77')
         box.candidates.return_value = ['9']
-        box.source_key.return_value = 'private-key'
         box.raw.return_value = b'From: secret@example.invalid\nSubject: private subject\n\nprivate body'
         box.internal_date.return_value = '2026-10-31T01:27:00+01:00'
         classifier = Mock(side_effect=ValueError('archive summary'))
