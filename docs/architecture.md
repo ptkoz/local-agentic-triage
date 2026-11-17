@@ -3,9 +3,10 @@
 ## Component responsibilities
 
 - `common` owns configuration, strict JSON decoding, and process locking.
-- `classifier` owns all LLM operations and the boundary between model data and
-  deterministic application logic.
-- `events` owns the configured Calendar boundary.
+- `classifier` owns LLM context preparation, inference, and response validation
+  across all model-assisted decisions.
+- `events` owns Calendar access, event eligibility policy, and verified event
+  creation.
 - `mail` owns mail access, MIME parsing, the immutable source mail, and pipeline
   orchestration, including sequential per-candidate event processing.
 - `reporting` owns per-mail notification rendering and Discord delivery.
