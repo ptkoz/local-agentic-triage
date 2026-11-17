@@ -5,9 +5,7 @@
 - `common` owns configuration, strict JSON decoding, and process locking.
 - `classifier` owns all LLM operations and the boundary between model data and
   deterministic application logic.
-- `events` owns only the configured Calendar boundary: lookup normalization,
-  independent input validation, canonicalization, horizon checks, creation, and
-  readback verification.
+- `events` owns the configured Calendar boundary.
 - `mail` owns mail access, MIME parsing, the immutable source mail, and pipeline
   orchestration, including sequential per-candidate event processing.
 - `reporting` owns per-mail notification rendering and Discord delivery.
