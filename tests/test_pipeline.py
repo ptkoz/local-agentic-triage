@@ -106,7 +106,8 @@ class PipelineTests(unittest.TestCase):
              self.assertLogs('local_agentic_triage', level='INFO'):
             self.assertEqual(self.run_poll(box, config, Mock(return_value='leave'), runner=runner), 0)
         sent_text = runner.call_args.kwargs['input']
-        self.assertIn(f'Od **{sender}** z dnia', sent_text)
+        self.assertEqual(sent_text, '**Inbox**: z **31 paź, 01:27** od **Dziennik ' + 'V' * 1100
+                         + '** (noreply@vulcan.net.pl)\n> summary')
         delegate.assert_called_once_with('9', raw, config)
 
     def test_mandatory_summary_for_leave(self):
@@ -255,11 +256,40 @@ class PipelineTests(unittest.TestCase):
              self.assertLogs('local_agentic_triage', level='INFO'):
             self.assertEqual(self.run_poll(box, make_config(), classifier, runner=runner), 0)
         render_spy.assert_called_once_with(
-            {'sender': 'a@b.invalid', 'summary': 'Synthetic.',
+            {'sender_name': '', 'sender_address': 'a@b.invalid', 'summary': 'Synthetic.',
              'sent_at': '2026-10-31T01:27:00+01:00'},
             make_config().discord_limit,
+            destination='archive',
         )
-        self.assertIn('Synthetic.', runner.call_args.kwargs['input'])
+        self.assertEqual(runner.call_args.kwargs['input'],
+                         '**Archiwum**: z **31 paź, 01:27** od **a@b.invalid**\n> Synthetic.')
+
+    def test_notification_heading_follows_destination(self):
+        from local_agentic_triage.reporting.report import render_notification
+        summary = 'Syntetyczne podsumowanie (przykład) wiadomości testowej.'
+        for destination, heading in (('archive', 'Archiwum'), ('leave', 'Inbox')):
+            with self.subTest(destination=destination):
+                box = Mock(validity='77')
+                box.candidates.return_value = ['9']
+                box.raw.return_value = (b'Date: Tue, 17 Nov 2026 15:23:00 +0100\n'
+                                        b'From: Synthetic Shop <orders@shop.invalid>\n\nbody')
+                self.summarizer.return_value = summary
+                runner = _runner_ok()
+                with patch('local_agentic_triage.mail.pipeline.render_notification',
+                           wraps=render_notification) as render_spy, \
+                     self.assertLogs('local_agentic_triage', level='INFO'):
+                    self.assertEqual(self.run_poll(box, make_config(), Mock(return_value=destination),
+                                                   runner=runner), 0)
+                render_spy.assert_called_once_with(
+                    {'sender_name': 'Synthetic Shop', 'sender_address': 'orders@shop.invalid', 'summary': summary,
+                     'sent_at': '2026-11-17T15:23:00+01:00'},
+                    make_config().discord_limit,
+                    destination=destination,
+                )
+                self.assertEqual(runner.call_args.kwargs['input'],
+                                 f'**{heading}**: z **17 lis, 15:23** od **Synthetic Shop** (orders@shop.invalid)\n> '
+                                 + summary)
+                getattr(box, destination).assert_called_once_with('9')
 
     def test_oversize_notification_blocks_send_and_disposition(self):
         """If the rendered notification exceeds discord_limit, no send and no disposition."""

@@ -25,9 +25,23 @@ class ContentTests(unittest.TestCase):
         m=parse(raw,1000)
         self.assertEqual(m.body,'Hello & world')
         self.assertEqual(m.sent_date,'2025-01-01T12:00:00+01:00')
+        self.assertEqual(m.sender_name,'A')
         self.assertEqual(m.sender_address,'a@example.invalid')
         self.assertNotIn('SECRET',m.body)
         with self.assertRaises(ValueError): parse(raw,2)
+    def test_sender_name_is_separated_from_sender_address(self):
+        for header,name,address in (
+                ('Synthetic Shop <orders@shop.invalid>','Synthetic Shop','orders@shop.invalid'),
+                ('"Doe, Jane" <jane@example.invalid>','Doe, Jane','jane@example.invalid'),
+                ('=?utf-8?q?Pa=C5=84stwo?= <p@example.invalid>','Państwo','p@example.invalid'),
+                ('a@example.invalid','','a@example.invalid'),
+                ('<a@example.invalid>','','a@example.invalid'),
+                ('sender','','sender')):
+            with self.subTest(header=header):
+                m=parse(f'From: {header}\n\nbody'.encode(),1000)
+                self.assertEqual((m.sender_name,m.sender_address),(name,address))
+        m=parse(b'\nbody',1000)
+        self.assertEqual((m.sender,m.sender_name,m.sender_address),('','',''))
     def test_plain_preferred(self):
         raw=b'Content-Type: multipart/alternative; boundary=x\n\n--x\nContent-Type: text/html\n\n<b>HTML</b>\n--x\nContent-Type: text/plain\n\nplain\n--x--'
         self.assertEqual(parse(raw,1000).body,'plain')
@@ -166,7 +180,7 @@ class ContentTests(unittest.TestCase):
                          {'mail','limit'})
 
     def test_model_json_bounds_every_mail_field_and_fails_closed(self):
-        mail=Mail(sender='s'*200001,sender_address='s'*200001,sent_date='d'*200001,body='b'*200001,subject='t'*200001)
+        mail=Mail(sender='s'*200001,sender_name='s'*200001,sender_address='s'*200001,sent_date='d'*200001,body='b'*200001,subject='t'*200001)
         context_bound_mail=fit_to_context(mail,10000)
         source=classifier_input.serialize_mail(context_bound_mail)
         self.assertLessEqual(len(source.encode()),10000)
@@ -200,7 +214,7 @@ class ContentTests(unittest.TestCase):
 
     def test_model_consumers_serialize_the_same_decorated_mail(self):
         from local_agentic_triage.classifier import events
-        mail=Mail(sender='s'*5000,sender_address='s'*5000,sent_date='2025-01-01T12:00:00+01:00',body='b'*20000,subject='t'*5000)
+        mail=Mail(sender='s'*5000,sender_name='s'*5000,sender_address='s'*5000,sent_date='2025-01-01T12:00:00+01:00',body='b'*20000,subject='t'*5000)
         context_bound_mail=fit_to_context(mail,10000)
         with patch.object(classifier_transport,'chat_completion',side_effect=[
                 {'summary':'Opis.'},{'destination':'leave'},{'events':[]}]) as chat:

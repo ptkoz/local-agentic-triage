@@ -70,8 +70,10 @@ def poll(mailbox, config, classifier=classify, event_processor=process_events, *
             # Validate the mandatory notification before optional side effects.
             stage = 'notify'
             notification = render_notification(
-                {'sender': parsed_mail.sender, 'summary': summary, 'sent_at': parsed_mail.sent_date},
+                {'sender_name': parsed_mail.sender_name, 'sender_address': parsed_mail.sender_address,
+                 'summary': summary, 'sent_at': parsed_mail.sent_date},
                 config.discord_limit,
+                destination=destination,
             )
 
             # Optional: eduVULCAN handoff (best-effort)

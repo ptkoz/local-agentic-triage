@@ -19,6 +19,7 @@ class Text(HTMLParser):
 @dataclass(frozen=True)
 class Mail:
     sender: str
+    sender_name: str
     sender_address: str
     sent_date: str
     body: str
@@ -46,4 +47,5 @@ def parse(raw,limit):
     except (TypeError,ValueError,OverflowError):
         pass
     sender=str(message.get('From',''))
-    return Mail(sender,parseaddr(sender)[1],sent_date,body,str(message.get('Subject','')))
+    sender_name,sender_address=parseaddr(sender)
+    return Mail(sender,sender_name,sender_address,sent_date,body,str(message.get('Subject','')))
