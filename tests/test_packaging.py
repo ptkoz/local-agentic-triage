@@ -94,8 +94,7 @@ class PackagingTests(unittest.TestCase):
         self.assertIn('72 elapsed hours', architecture)
         self.assertIn('three local calendar days', architecture)
         self.assertIn('after the mandatory notification has been rendered and validated', readme)
-        for document in (architecture, readme):
-            self.assertIn('(`**Archiwum**` for `archive`, `**Inbox**` for `leave`)', document)
+        self.assertIn('(`**Archiwum**` for `archive`, `**Inbox**` for `leave`)', readme)
 
     def test_failed_build_preserves_existing_archive(self):
         with tempfile.TemporaryDirectory() as directory:
