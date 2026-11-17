@@ -108,7 +108,6 @@ class VulcanTests(unittest.TestCase):
         box = Mock(validity='77')
         raw = raw_from(sender)
         box.candidates.return_value = ['9']
-        box.source_key.return_value = 'key'
         box.raw.return_value = raw
         summarizer = Mock(return_value='synthetic summary')
         classifier = Mock(return_value=destination)

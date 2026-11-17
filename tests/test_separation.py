@@ -30,7 +30,6 @@ class SeparationTests(unittest.TestCase):
             self.assertFalse(any(name.endswith('OUTPUT_SCHEMA') for name in vars(module)))
         for name in expected:
             self.assertFalse(hasattr(transport, name))
-        self.assertFalse(hasattr(transport, 'response_schema'))
 
     def test_disposition_has_explicit_public_surface(self):
         from local_agentic_triage.classifier import disposition
@@ -72,20 +71,6 @@ class SeparationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'event_structure'):
             Calendar(make_config()).nearby({'start': EVENT['start']})
 
-    def test_stale_core_modules_and_imports_are_absent(self):
-        self.assertFalse((PACKAGE / 'classifier/core.py').exists())
-        self.assertFalse((PACKAGE / 'events/core.py').exists())
-        for source in PACKAGE.rglob('*.py'):
-            text = source.read_text(encoding='utf-8')
-            self.assertNotIn('classifier.core', text, source)
-            self.assertNotIn('events.core', text, source)
-
-    def test_pipeline_uses_internal_result_without_json_roundtrip(self):
-        source = (PACKAGE / 'mail/pipeline.py').read_text(encoding='utf-8')
-        self.assertNotIn('parse_results', source)
-        self.assertNotIn('json.dumps(event_result)', source)
-        self.assertIn('from local_agentic_triage.mail.event_pipeline import process_events', source)
-
     def test_mail_event_pipeline_imports_only_public_domain_apis(self):
         source = PACKAGE / 'mail/event_pipeline.py'
         tree = ast.parse(source.read_text(encoding='utf-8'))
@@ -94,16 +79,12 @@ class SeparationTests(unittest.TestCase):
                            for alias in node.names if alias.name.startswith('_')]
         self.assertEqual(private_imports, [])
 
-    def test_strict_json_is_common_boundary(self):
+    def test_common_json_boundaries(self):
         from local_agentic_triage.common.json import compact_json, strict_json
         self.assertEqual(compact_json({'value': 'żółć'}), '{"value":"żółć"}')
         self.assertEqual(strict_json('{"value":1}'), {'value': 1})
         with self.assertRaisesRegex(ValueError, 'duplicate key'):
             strict_json('{"value":1,"value":2}')
-        transport = (PACKAGE / 'classifier/transport.py').read_text(encoding='utf-8')
-        imap = (PACKAGE / 'mail/imap.py').read_text(encoding='utf-8')
-        self.assertNotIn('def strict_json', transport)
-        self.assertNotIn('classifier.transport import strict_json', imap)
 
 
 if __name__ == '__main__':

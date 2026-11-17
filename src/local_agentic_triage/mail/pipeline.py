@@ -71,7 +71,6 @@ def poll(mailbox, config, classifier=classify, event_processor=process_events, *
             stage = 'notify'
             notification = render_notification(
                 {'sender': parsed_mail.sender, 'summary': summary, 'sent_at': parsed_mail.sent_date},
-                destination,
                 config.discord_limit,
             )
 

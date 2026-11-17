@@ -11,7 +11,7 @@ class CommandError(RuntimeError):
 def error_code(exc):
     if isinstance(exc,CommandError): return exc.code
     text=type(exc).__name__
-    text=text.replace('JSONDecodeError','json_decode_error').replace('OSError','os_error')
+    text=text.replace('OSError','os_error')
     return re.sub(r'(?<!^)(?=[A-Z])','_',text).lower()
 
 

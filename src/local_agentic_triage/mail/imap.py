@@ -3,7 +3,6 @@ from datetime import datetime
 from pathlib import Path
 import re
 import subprocess
-from urllib.parse import quote
 
 from local_agentic_triage.common.json import strict_json
 from local_agentic_triage.common.diagnostics import CommandError, error_code
@@ -100,18 +99,6 @@ class Mailbox:
         if len(set(uids)) != len(uids):
             raise ValueError('himalaya_search_invalid')
         return uids
-
-    def all_uids(self):
-        output = self.command(['imap', 'raw'], self._select('a2 UID SEARCH ALL\r\n'))
-        return set(self._search_result(output))
-
-    def source_prefix(self):
-        account = quote(self.config.account, safe='')
-        inbox = quote(self.config.inbox, safe='')
-        return f'imap:{account}:{inbox}:{self.validity}:'
-
-    def source_key(self, uid):
-        return self.source_prefix() + uid_value(uid)
 
     def exists(self, uid):
         uid = uid_value(uid)

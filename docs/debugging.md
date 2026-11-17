@@ -24,11 +24,11 @@ contains only technical metadata:
 
 - `item` is the transient position in that poll's candidate list. Do not use it as an identifier.
 - `uid` is the IMAP UID in the configured Inbox. It is not global across mailboxes or a changed `UIDVALIDITY`.
-- `uidvalidity` is the mailbox generation that makes the UID historically unambiguous. Current builds include it in per-message start and failure logs.
+- `uidvalidity` is the mailbox generation that scopes the UID.
 - `stage` is the last pipeline boundary entered. `summarize` covers the summary request and summary validation. `classify` covers the later destination request and disposition validation; it receives the already generated summary and returns only `archive` or `leave`.
 - `error` is generated from a controlled exception type. Exception text, subprocess input/output, headers, sender, subject, body, summary, and model output must never be printed or copied into logs or reports.
 
-Read the configured account and Inbox locally from the private `config.toml`; never copy their values into Git or a debugging report. `Mailbox.connect`, `require_uid`, and `source_key` in `mail/imap.py` show the mailbox selection, `UIDVALIDITY`, and UID-scoping rules.
+Read the configured account and Inbox locally from the private `config.toml`; never copy their values into Git or a debugging report. `Mailbox.connect` and `require_uid` in `mail/imap.py` show the mailbox selection, `UIDVALIDITY`, and UID-scoping rules.
 
 ## Read-only replay of summary and classification
 
@@ -42,28 +42,6 @@ For an explicitly authorized investigation, replay only the read, summary, and l
 
 Put `--config /absolute/path/config.toml` before `mail` when using a non-default config.
 
-If the installed zipapp predates this command, export a reviewed commit into a
-new isolated directory. Do not run from a normal working tree: staged,
-unstaged, untracked, or ignored importable files could change executed code.
-
-```sh
-mkdir -p "$HOME/.local/share/local-agentic-triage/diagnostics"
-diagnostic_root=$(mktemp -d "$HOME/.local/share/local-agentic-triage/diagnostics/source.XXXXXX")
-reviewed_commit='REPLACE_WITH_REVIEWED_FULL_COMMIT_SHA'
-git -C /absolute/path/to/local-agentic-triage archive \
-  --output="$diagnostic_root/source.tar" "$reviewed_commit"
-tar -xf "$diagnostic_root/source.tar" -C "$diagnostic_root"
-rm "$diagnostic_root/source.tar"
-cd "$diagnostic_root"
-PYTHONPATH=src /absolute/path/to/python3.14 -m local_agentic_triage \
-  --config "$HOME/Library/Application Support/local-agentic-triage/config.toml" \
-  mail diagnose --uid 15318 --uidvalidity 123
-```
-
-Record the reviewed full commit SHA in the technical report and remove the
-isolated directory afterward. Running from this exported source does not update
-the installed application or restart its LaunchAgents.
-
 `mail diagnose`:
 
 - selects only the configured Inbox and validates its current `UIDVALIDITY`;
@@ -74,19 +52,13 @@ the installed application or restart its LaunchAgents.
 
 Do not use `mail poll` for diagnosis. It has production side effects. Do not add temporary logging of private input or model output.
 
-A missing UID, a different mailbox, or `--uidvalidity` mismatch means the
-historical message cannot be replayed by that UID. The command rejects a
-mismatched expected generation before reading the message. Do not search other
-mailboxes automatically or guess a replacement identifier.
-
-Legacy failure lines without `uidvalidity` cannot prove historical identity
-after a mailbox-generation change. A UID-only replay may describe the message
-currently using that UID, but must not be reported as confirmed evidence about
-the historical failure. State this limitation explicitly.
+A missing UID, a different mailbox, or `--uidvalidity` mismatch stops the replay.
+The command rejects a mismatched expected generation before reading the message.
+Do not search other mailboxes automatically or guess a replacement identifier.
 
 ## Classification JSON errors
 
-The shared local-model client performs two strict JSON decodes. Current builds distinguish them:
+The shared local-model client performs and distinguishes two strict JSON decodes:
 
 - `model_envelope_json_invalid`: the HTTP body returned by the loopback Docker Model Runner endpoint was not strict JSON. This is a transport/runtime response failure before reading a model message.
 - `model_content_json_invalid`: `choices[0].message.content` was not strict JSON. The HTTP envelope was valid, but the model returned malformed model JSON.
@@ -116,8 +88,6 @@ second `mail_item_failed` line, make the poll fail, or prevent leave/archive.
 Summary, destination, read, notification rendering/delivery, and disposition
 errors remain fatal and retryable.
 
-Older builds logged both decoder failures as `json_decode_error`. That legacy code alone is ambiguous: it proves strict JSON decoding failed but not which decoder failed. Use the read-only diagnostic command on the current build. If replay succeeds, report that the historical decoder location cannot be proven from legacy logs; do not infer it or claim a root cause from private output.
-
 Before trusting a result, compare the installed zipapp with the reviewed repository version or confirm the deployed commit. The implementation in `classifier/resources.py`, `classifier/disposition.py`, `classifier/events.py`, `classifier/transport.py`, `classifier/input.py`, `mail/event_pipeline.py`, `events/calendar.py`, `mail/pipeline.py`, and `mail/imap.py` is normative documentation for the exact boundaries above. `classifier/resources.py` is the single owner and loader of all five function-named prompt and output-schema resources; `classifier/transport.py` contains transport and limits only.
 
 ## Reporting an investigation
@@ -127,6 +97,6 @@ Report only:
 1. whether the UID was still valid in the configured Inbox;
 2. the observed technical stage and controlled error code;
 3. the corresponding code boundary;
-4. whether the result is confirmed by current replay or limited by legacy evidence.
+4. whether the result is confirmed by current replay or remains unproven.
 
 Do not repair, restart jobs, mutate mail, inspect Calendar, or deliver notifications unless the operator separately authorizes those actions.

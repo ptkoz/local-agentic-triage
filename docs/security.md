@@ -7,8 +7,8 @@ limits. Himalaya v2.1.0 is the sole mail boundary and owns its already-configure
 credentials. Python never reads its config, retrieves passwords or logs in.
 
 Message bodies and headers are transient independent summary, destination, and
-sparse-extraction input. The application has no database or durable reporting
-state. Mail content, headers, classifier output, sender, subject, summaries and event fields
+sparse-extraction input. Mail content, headers, classifier output, sender, subject,
+summaries and event fields
 never enter application logs. The numeric IMAP UID is intentionally logged with
 poll actions and failures so a failed message can be reproduced. Failure logs use
 fixed technical codes, without exception text or captured stdout/stderr. Himalaya

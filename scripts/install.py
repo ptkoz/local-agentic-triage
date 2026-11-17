@@ -53,19 +53,6 @@ def install(home, python):
     for path in (runtime, data, cache, logs, agents):
         directory(path)
     build(runtime / 'local-agentic-triage.pyz', python)
-    obsolete = (
-        agents / 'local.local-agentic-triage.report.plist',
-        logs / 'report.log',
-        data / 'triage.sqlite3',
-        data / 'triage.sqlite3-wal',
-        data / 'triage.sqlite3-shm',
-        data / 'triage.sqlite3.init.lock',
-        data / 'reports.sqlite3',
-        data / 'reports.sqlite3-wal',
-        data / 'reports.sqlite3-shm',
-    )
-    for path in obsolete:
-        path.unlink(missing_ok=True)
     config = data / 'config.toml'
     if not config.exists():
         escaped_home = json.dumps(str(home), ensure_ascii=False)[1:-1]

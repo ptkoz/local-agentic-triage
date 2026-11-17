@@ -28,9 +28,6 @@ class ReviewTests(unittest.TestCase):
         def run(args, **kw):
             self.assertEqual(args, ['/usr/bin/osascript', '-l', 'JavaScript', '-e', SCRIPT])
             self.assertNotIn(EVENT['title'], SCRIPT)
-            self.assertNotIn('hermes', args)
-            for forbidden in ('chat', '--toolsets', '--skills', '--model', '--provider', 'stream-json'):
-                self.assertNotIn(forbidden, args)
             data = json.loads(kw['input'])
             self.assertEqual(data['calendar'], 'Test Calendar')
             out = ([] if data['operation'] == 'search'
@@ -110,7 +107,7 @@ class ReviewTests(unittest.TestCase):
     def test_event_adapter_failure_is_absorbed_and_archive_completes(self):
         box = Mock(validity='77')
         box.candidates.return_value = ['9']
-        box.source_key.return_value = 'imap:test-account:Test%20Inbox:77:9'
+
         box.raw.return_value = (b'Date: Sat, 31 Oct 2026 01:27:00 +0100\n'
                                 b'From: Synthetic Sender <sender@example.invalid>\n\nSynthetic body')
         summarizer = Mock(return_value='Synthetic summary')
@@ -176,11 +173,6 @@ class ReviewTests(unittest.TestCase):
                     self.assertEqual(run.call_count, 2)
                     self.assertEqual(run.call_args.kwargs['input'],
                                      b'a1 SELECT "Test Inbox"\r\na2 UID SEARCH UID 9\r\n')
-
-    def test_exists_ignores_leave_and_no_store_in_new_design(self):
-        with patch('subprocess.run', side_effect=[done(SELECT), done(SEARCH)]) as run:
-            self.assertTrue(Mailbox(make_config()).exists('9'))
-            self.assertNotIn(b'HermesLeave', run.call_args.kwargs['input'])
 
     def test_semantic_outcomes_preserved_and_created_cannot_be_claimed(self):
         from local_agentic_triage.events.calendar import Calendar

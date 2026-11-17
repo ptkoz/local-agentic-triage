@@ -9,7 +9,6 @@ REQUIRED = (
     'himalaya', 'hermes', 'poll_lock',
 )
 PATHS = ('himalaya', 'hermes', 'poll_lock')
-IGNORED = frozenset(('database', 'report_lock', 'delivery_lock', 'discord_user_id'))
 PLACEHOLDER = re.compile(r'@[A-Z][A-Z0-9_]*@')
 SNOWFLAKE = r'[1-9][0-9]{0,19}'
 
@@ -55,16 +54,13 @@ def validate(config):
 def load(path=DEFAULT_PATH):
     with Path(path).expanduser().open('rb') as file:
         data = tomllib.load(file)
-    allowed = {field.name for field in fields(Config)} | IGNORED
+    allowed = {field.name for field in fields(Config)}
     if data.keys() - allowed:
         raise ValueError('unknown config key')
     if set(REQUIRED) - data.keys():
         raise ValueError('missing config key')
     for key, value in data.items():
-        if key in IGNORED:
-            continue
         expected = int if key in {'max_mail_bytes', 'discord_limit', 'timeout'} else str
         if type(value) is not expected:
             raise ValueError('invalid config type')
-    clean = {k: v for k, v in data.items() if k not in IGNORED}
-    return Config(**clean)
+    return Config(**data)

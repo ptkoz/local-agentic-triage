@@ -22,9 +22,7 @@ def _label(value, comma=False):
     return f'{value.day} {MONTHS[value.month]}{separator}{value:%H:%M}'
 
 
-def render_notification(row, destination, limit):
-    """Render one Discord notification for a mail. destination is accepted for
-    branch-ready leave/archive wording differences; current format is neutral."""
+def render_notification(row, limit):
     if not 100 <= limit <= 2000:
         raise ValueError('report limit invalid')
     sender = row['sender']

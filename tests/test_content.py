@@ -159,17 +159,11 @@ class ContentTests(unittest.TestCase):
             context_bound_mail.body='changed'
         self.assertEqual(copy.copy(context_bound_mail),context_bound_mail)
 
-    def test_context_bound_mail_keeps_model_state_private(self):
+    def test_context_bound_mail_exposes_mail_and_limit(self):
         mail=parse(b'From: sender@example.invalid\nSubject: Synthetic\n\nbody',1000)
         context_bound_mail=fit_to_context(mail,10000)
-        with patch.object(classifier_transport,'chat_completion',side_effect=[
-                {'summary':'Opis.'},{'destination':'leave'}]):
-            classify(context_bound_mail,summarize(context_bound_mail))
         self.assertEqual({name for name in vars(context_bound_mail) if not name.startswith('_')},
                          {'mail','limit'})
-        for name in ('source','source_json'):
-            self.assertFalse(hasattr(context_bound_mail,name))
-        self.assertFalse(hasattr(classifier_input,'FrozenDict'))
 
     def test_model_json_bounds_every_mail_field_and_fails_closed(self):
         mail=Mail(sender='s'*200001,sender_address='s'*200001,sent_date='d'*200001,body='b'*200001,subject='t'*200001)
