@@ -177,12 +177,12 @@ class ContentTests(unittest.TestCase):
         self.assertEqual(context_bound_mail.source_json,
             '{"metadata":{"sent_date":"","sender":"sender@example.invalid","subject":"Synthetic"},"body":"body"}')
         self.assertEqual(json.loads(context_bound_mail.source_json),context_bound_mail.source)
+        self.assertEqual(context_bound_mail.sender,'sender@example.invalid')
+        self.assertEqual(context_bound_mail.subject,'Synthetic')
+        from local_agentic_triage.classifier import input as classifier_input
+        self.assertFalse(hasattr(classifier_input,'FrozenDict'))
         with self.assertRaises((AttributeError,TypeError)):
             setattr(context_bound_mail,'mail',mail)
-        with self.assertRaises(TypeError):
-            context_bound_mail.source['body']='changed'
-        with self.assertRaises(TypeError):
-            context_bound_mail.source['metadata']['sender']='changed'
 
     def test_context_fitting_is_lazy_cached_and_fail_closed_at_supplied_limit(self):
         from local_agentic_triage.classifier import input as classifier_input

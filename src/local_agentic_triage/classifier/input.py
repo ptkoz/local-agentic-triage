@@ -4,23 +4,8 @@ import json
 
 from local_agentic_triage.mail.mime import Mail
 
-MAIL_FIELD_BUDGETS={'sent_date':256,'sender':1024,'subject':2048,'body':6400}
 MAIL_PAYLOAD_BYTES=10000
 TRUNCATION='[content truncated]'
-
-
-class FrozenDict(dict):
-    def _immutable(self,*args,**kwargs):
-        raise TypeError('context-bound mail is immutable')
-
-    __setitem__=_immutable
-    __delitem__=_immutable
-    __ior__=_immutable
-    clear=_immutable
-    pop=_immutable
-    popitem=_immutable
-    setdefault=_immutable
-    update=_immutable
 
 
 def _bounded_string(value,budget):
@@ -45,27 +30,39 @@ class ContextBoundMail:
     limit: int
 
     @cached_property
-    def _fitted(self):
-        fields={field:_bounded_string(getattr(self.mail,field),budget)
-                for field,budget in MAIL_FIELD_BUDGETS.items()}
-        if len(_compact(fields).encode())>self.limit:
-            raise ValueError('mail payload size')
-        source=FrozenDict(metadata=FrozenDict(
-            {name:fields[name] for name in ('sent_date','sender','subject')}),
-            body=fields['body'])
-        source_json=_compact(source)
-        if len(source_json.encode())>self.limit:
-            raise ValueError('mail payload size')
-        return source,source_json
+    def sent_date(self) -> str:
+        return _bounded_string(self.mail.sent_date,256)
 
     @cached_property
-    def source(self):
-        return self._fitted[0]
+    def sender(self) -> str:
+        return _bounded_string(self.mail.sender,1024)
 
     @cached_property
-    def source_json(self):
-        return self._fitted[1]
+    def subject(self) -> str:
+        return _bounded_string(self.mail.subject,2048)
+
+    @cached_property
+    def body(self) -> str:
+        return _bounded_string(self.mail.body,6400)
+
+    @cached_property
+    def source(self) -> dict[str,object]:
+        source={
+            'metadata':{
+                'sent_date':self.sent_date,
+                'sender':self.sender,
+                'subject':self.subject,
+            },
+            'body':self.body,
+        }
+        if len(_compact(source).encode())>self.limit:
+            raise ValueError('mail payload size')
+        return source
+
+    @cached_property
+    def source_json(self) -> str:
+        return _compact(self.source)
 
 
-def fit_to_context(mail,limit) -> ContextBoundMail:
+def fit_to_context(mail: Mail,limit: int) -> ContextBoundMail:
     return ContextBoundMail(mail,limit)
