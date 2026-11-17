@@ -23,14 +23,14 @@ def _validate_events(events):
             raise ValueError('event_structure')
 
 
-def _duplicate_result(result):
+def _validate_duplicate_result(result):
     if (not isinstance(result, dict) or set(result) != {'outcome'} or
             result['outcome'] not in ('existing', 'possible_duplicate', 'create')):
         raise ValueError('event_outcome_invalid')
     return result['outcome']
 
 
-def _completion_result(result, event):
+def _validate_completion_result(result, event):
     _validate_events([result])
     if result['start'] != event['start']:
         raise ValueError('event_completion_unauthorized')
@@ -57,7 +57,7 @@ def extract_events(context_bound_mail: ContextBoundMail):
 
 def is_duplicate(event, nearby) -> bool:
     _validate_events([event])
-    outcome = _duplicate_result(helpers.chat_completion_with_payload(
+    outcome = _validate_duplicate_result(helpers.chat_completion_with_payload(
         resources.is_duplicate_prompt(), resources.IS_DUPLICATE_OUTPUT_SCHEMA,
         {'event': event, 'nearby': nearby}, 'event',
     ))
@@ -69,4 +69,4 @@ def complete_event(event):
     result = helpers.chat_completion_with_payload(
         resources.complete_event_prompt(), resources.COMPLETE_EVENT_OUTPUT_SCHEMA,
         {'event': event}, 'event')
-    return _completion_result(result, event)
+    return _validate_completion_result(result, event)

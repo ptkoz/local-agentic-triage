@@ -1,6 +1,10 @@
 import json
 
 
+def compact_json(value):
+    return json.dumps(value, ensure_ascii=False, separators=(',', ':'))
+
+
 def strict_json(text):
     def pairs(items):
         obj = {}

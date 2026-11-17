@@ -176,9 +176,9 @@ class PromptContractTests(unittest.TestCase):
                      r'resolve explicit unambiguous relative dates such as tomorrow from sent_date')
 
     def test_duplicate_guard_rejects_batch_and_extra_fields(self):
-        from local_agentic_triage.classifier.events import _duplicate_result
+        from local_agentic_triage.classifier.events import _validate_duplicate_result
         for outcome in ('existing','possible_duplicate','create'):
-            self.assertEqual(_duplicate_result({'outcome':outcome}),outcome)
+            self.assertEqual(_validate_duplicate_result({'outcome':outcome}),outcome)
         for invalid in ({'results':[]},{'outcome':'no_match'},{'outcome':'create','index':0},{}):
             with self.subTest(invalid=invalid),self.assertRaises(ValueError):
-                _duplicate_result(invalid)
+                _validate_duplicate_result(invalid)

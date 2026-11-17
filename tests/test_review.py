@@ -184,7 +184,7 @@ class ReviewTests(unittest.TestCase):
 
     def test_semantic_outcomes_preserved_and_created_cannot_be_claimed(self):
         from local_agentic_triage.events.calendar import Calendar
-        from local_agentic_triage.classifier.events import _duplicate_result
+        from local_agentic_triage.classifier.events import _validate_duplicate_result
         candidates = [EVENT, EVENT | {'title': 'Different'}, EVENT | {'title': 'Ambiguous'}]
         answers = [{'outcome': 'create'}, EVENT, {'outcome': 'existing'}, {'outcome': 'possible_duplicate'}]
         with patch.object(Calendar, 'nearby', return_value=[]), \
@@ -195,4 +195,4 @@ class ReviewTests(unittest.TestCase):
         create.assert_called_once_with(EVENT)
         self.assertEqual([r['outcome'] for r in final['results']], ['created', 'duplicate', 'duplicate'])
         with self.assertRaises(ValueError):
-            _duplicate_result({'outcome': 'created'})
+            _validate_duplicate_result({'outcome': 'created'})

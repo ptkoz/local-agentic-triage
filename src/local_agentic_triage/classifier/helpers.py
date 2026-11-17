@@ -1,7 +1,7 @@
 import json
 import urllib.request
 
-from local_agentic_triage.common.json import strict_json
+from local_agentic_triage.common.json import compact_json, strict_json
 
 ENDPOINT='http://127.0.0.1:12434/engines/v1/chat/completions'
 MODEL='docker.io/ai/ministral3-mail-8b:16k'
@@ -24,10 +24,6 @@ class ModelEnvelopeJsonInvalid(ValueError):
 
 class ModelContentJsonInvalid(ValueError):
     pass
-
-
-def compact_json(value):
-    return json.dumps(value,ensure_ascii=False,separators=(',',':'))
 
 
 def chat_completion_with_payload(system,response_format,payload,payload_name):

@@ -95,7 +95,8 @@ class SeparationTests(unittest.TestCase):
         self.assertEqual(private_imports, [])
 
     def test_strict_json_is_common_boundary(self):
-        from local_agentic_triage.common.json import strict_json
+        from local_agentic_triage.common.json import compact_json, strict_json
+        self.assertEqual(compact_json({'value': 'żółć'}), '{"value":"żółć"}')
         self.assertEqual(strict_json('{"value":1}'), {'value': 1})
         with self.assertRaisesRegex(ValueError, 'duplicate key'):
             strict_json('{"value":1,"value":2}')
