@@ -6,10 +6,9 @@ executable/data paths, account/mailbox names, Discord targets, calendar name and
 limits. Himalaya v2.1.0 is the sole mail boundary and owns its already-configured
 credentials. Python never reads its config, retrieves passwords or logs in.
 
-Message bodies and headers are transient independent summary, destination, and sparse-extraction input. SQLite retains
-only the required sender/summary reporting data, the normalized message Date
-header or IMAP INTERNALDATE fallback, technical source identity and processing timestamps. Protect the data directory and backups accordingly. Mail
-content, headers, classifier output, sender, subject, summaries and event fields
+Message bodies and headers are transient independent summary, destination, and
+sparse-extraction input. The application has no database or durable reporting
+state. Mail content, headers, classifier output, sender, subject, summaries and event fields
 never enter application logs. The numeric IMAP UID is intentionally logged with
 poll actions and failures so a failed message can be reproduced. Failure logs use
 fixed technical codes, without exception text or captured stdout/stderr. Himalaya
@@ -17,12 +16,12 @@ logging is explicitly disabled.
 Event-enrichment failures log only the UID, a fixed technical error code, and an
 allowed numeric subprocess return code when present. They do not enter the fatal
 mail-failure count or prevent leave/archive disposition.
-Discord delivery requires an explicit runner: direct poll() calls disable
-immediate delivery by default, while production mail poll explicitly injects
-subprocess.run after archive completion. Scheduled reporting additionally requires
-`report send --deliver`. Offline tests inject synthetic runners; they never call
-the real Hermes sender. Delivery failures retain ready/unreported rows and log
-only safe technical metadata.
+Discord delivery requires an explicit runner: production `mail poll` injects
+`subprocess.run`, while direct `poll()` calls fail closed before disposition.
+Offline tests inject synthetic runners and never call the real Hermes sender.
+Every valid mail is reported immediately after optional enrichment and before
+either leave or archive disposition. Delivery failures leave the mail unchanged
+and log only safe technical metadata.
 Summary generation receives bounded mail JSON. Destination classification receives
 the generated summary and the same bounded mail as separate untrusted fields. Sparse
 extraction independently receives the bounded mail without either classification
@@ -41,15 +40,16 @@ rejection, typed fields, date syntax, cross-field semantics, and authorization t
 preserve supplied event fields are independently enforced in Python. Event and nearby
 payloads fail closed over budget rather than truncate evidence.
 
-Summary and destination failures remain fatal/retryable. Extraction, duplicate,
-completion, and Calendar failures are optional and do not block disposition. Events
+Summary, destination, rendering, and Discord-delivery failures remain fatal and
+retryable. Extraction, duplicate, completion, eduVULCAN, and Calendar failures are
+optional and do not block notification or disposition. Events
 are processed sequentially; each completion result is fully validated immediately
 before its own Calendar write, and that write is exactly read back before processing
 the next candidate. No model stage has write authority. Fixed JXA reads only the
 configured calendar and creates validated events there, then verifies exact
 title/start/end/all-day/location values by readback. Calendar
-and report commands use argument lists, shell=False, stdin data, captured output,
-checked exit status, and timeouts. Hermes sends rendered report text without an LLM.
+and Discord commands use argument lists, shell=False, stdin data, captured output,
+checked exit status, and timeouts. Hermes sends rendered notification text without an LLM.
 
 Calendar search alone normalizes a known equal-date one-day all-day adapter row
 to an exclusive next-day end; create readback is never normalized.
@@ -58,7 +58,7 @@ Calendar edits/deletes, attendees, alarms, or notes are exposed. A validated opt
 location may be created and verified.
 
 Every mail read/store/move has a fresh SELECT UIDVALIDITY and exact UID-existence
-guard, including a recheck after Seen before MOVE. Separate Himalaya CLI sessions
+guard immediately before the operation. Separate Himalaya CLI sessions
 prevent atomic binding: mailbox recreation between guard and operation remains
 an explicitly accepted residual race in this simple design. Credentials and
 direct IMAP clients remain outside the boundary.

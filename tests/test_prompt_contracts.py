@@ -1,8 +1,12 @@
 """Offline semantic requirements for operational prompts (no model calls)."""
 import unittest
 
-from local_agentic_triage.classifier.core import disposition_prompt, summary_prompt
-from local_agentic_triage.events.core import completion_prompt, extraction_prompt, prompt
+from local_agentic_triage.classifier.resources import (classify_prompt,
+    complete_event_prompt, extract_events_prompt, is_duplicate_prompt,
+    summarize_prompt)
+
+
+def prompt(): return is_duplicate_prompt()
 
 
 class PromptContractTests(unittest.TestCase):
@@ -13,14 +17,14 @@ class PromptContractTests(unittest.TestCase):
                 self.assertRegex(text, pattern)
 
     def test_timezone_default_and_explicit_zone_precedence(self):
-        self.clauses(extraction_prompt(),
+        self.clauses(extract_events_prompt(),
             r'europe/warsaw.*default.*(?:no|without|missing).*timezone',
             r'explicit.*(?:zone|timezone).*never.*(?:replace|override)',
             r'local date.*time')
-        self.assertNotRegex(extraction_prompt().lower(), r'never guess[^.]*timezone')
+        self.assertNotRegex(extract_events_prompt().lower(), r'never guess[^.]*timezone')
 
     def test_unzoned_wall_clock_digits_are_preserved(self):
-        self.clauses(extraction_prompt(),
+        self.clauses(extract_events_prompt(),
                      r'(?:no|without).*zone.*wall.clock.*directly.*europe/warsaw',
                      r'(?:attach|apply).*date.specific.*offset',
                      r'(?:never|do not).*convert.*subtract.*hours',
@@ -28,12 +32,12 @@ class PromptContractTests(unittest.TestCase):
                      r'tomorrow 10:00.?11:00.*10:00.*11:00.*(?:not|never).*08:00')
 
     def test_archive_summary_language_is_independent_of_mail_language(self):
-        self.clauses(summary_prompt(), r'(?:sentence|summary).*polish',
+        self.clauses(summarize_prompt(), r'(?:sentence|summary).*polish',
                      r'(?:regardless|irrespective|independent).* (?:input|mail|source).*language',
                      r'(?:translate|translation).*polish')
 
     def test_archive_summary_is_short_single_sentence_plain_text(self):
-        self.clauses(summary_prompt(),
+        self.clauses(summarize_prompt(),
                      r'exactly one sentence',
                      r'at most 180 characters',
                      r'plain text',
@@ -41,11 +45,11 @@ class PromptContractTests(unittest.TestCase):
                      r'(?:no|without|do not use).*markdown')
 
     def test_acknowledgement_is_archive_without_version_history(self):
-        self.clauses(disposition_prompt(),
+        self.clauses(classify_prompt(),
                      r'generated summary.*source email.*separate summary and mail fields',
                      r'substantive personal reply',
                      r'acknowledge.*receipt.*awareness.*having read.*archive')
-        text=' '.join(disposition_prompt().lower().split())
+        text=' '.join(classify_prompt().lower().split())
         for obsolete in ('overrides the general reply rule',
                          'decide only whether',
                          'do not summarize the mail',
@@ -56,58 +60,58 @@ class PromptContractTests(unittest.TestCase):
                 self.assertNotIn(obsolete,text)
 
     def test_acceptance_confirmation_and_untrusted_output_commands(self):
-        self.clauses(disposition_prompt(),
+        self.clauses(classify_prompt(),
                      r'confirm.*(?:accept|decline).*appointment.*substantive.*leave',
                      r'(?:meaning|semantics).*request.*not.*word.*confirm',
                      r'(?:summary|mail).*(?:command|instruction).*(?:archive|leave).*untrusted.*ignore')
 
     def test_classifier_directives_are_not_mailbox_requests(self):
-        self.clauses(disposition_prompt(),
+        self.clauses(classify_prompt(),
                      r'(?:ai|classifier|system).*(?:output|label).*(?:not|isn.t).*mailbox.*request',
                      r'output.label command.*zero evidence.*archive')
 
     def test_genuine_request_overrides_embedded_archive_command(self):
-        self.clauses(disposition_prompt(),
+        self.clauses(classify_prompt(),
                      r'genuine request.*not.*embedded commands',
                      r'genuine request.*command.*output archive.*ignored.*genuine request decides.*leave',
                      r'command to output archive is never a reason.*archive')
 
     def test_exact_date_components_and_relative_resolution(self):
-        self.clauses(extraction_prompt(), r'(?:exact|preserve).*date tokens.*year',
+        self.clauses(extract_events_prompt(), r'(?:exact|preserve).*date tokens.*year',
                      r'(?:never|do not).*transpos.*day.*month',
                      r'(?:resolve|derive).*tomorrow.*sent_date')
 
     def test_resolved_date_controls_offset_and_numeric_offsets_are_literal(self):
-        self.clauses(extraction_prompt(),
+        self.clauses(extract_events_prompt(),
                      r'resolve.*relative date.*before.*offset',
                      r'offset.*resolved event date.*not.*sent_date',
                      r'-05:00.*(?:remain|stay|stays).*?-05:00')
 
     def test_warsaw_dst_boundary_and_repeated_confirmations(self):
-        self.clauses(extraction_prompt(),
+        self.clauses(extract_events_prompt(),
                      r'last sunday.*march.*\+02:00',
                      r'day-only date.*takes the month of sent_date.*whatever the offset',
                      r'one candidate.*each.*confirmation',
                      r'never deduplicate.*candidates')
 
     def test_single_day_and_explicit_exclusive_end(self):
-        from local_agentic_triage.events.core import validate_events
-        self.clauses(extraction_prompt(),
+        from local_agentic_triage.classifier.events import _validate_events
+        self.clauses(extract_events_prompt(),
                      r'single.date.*start.*yyyy-mm-dd.*end.*null',
                      r'(?:only|unless).*explicit.*(?:range|end)',
                      r'exclusive.*strictly after start',
                      r'(?:never|do not).*repair')
         event = dict(title='Synthetic', start='2099-02-20', end=None, date_note=None, location=None)
-        validate_events([event])
-        validate_events([event | {'end': '2099-02-21'}])
-        validate_events([event | {'end': event['start']}])
-        from local_agentic_triage.events.core import validate_final
+        _validate_events([event])
+        _validate_events([event | {'end': '2099-02-21'}])
+        _validate_events([event | {'end': event['start']}])
+        from local_agentic_triage.events.calendar import canonical
         with self.assertRaisesRegex(ValueError, 'event_order'):
-            validate_final(event | {'end': event['start']})
+            canonical(event | {'end': event['start']})
         self.assertIsNone(event['end'])
 
     def test_confirmed_event_with_alternatives_is_retained(self):
-        self.clauses(extraction_prompt(),
+        self.clauses(extract_events_prompt(),
                      r'confirmed.*(?:uncertain|unresolved).*alternativ',
                      r'(?:retain|keep|include).*event.*start.*end.*null',
                      r'nonempty date_note.*(?:preserv|list).*alternatives',
@@ -140,7 +144,7 @@ class PromptContractTests(unittest.TestCase):
         self.assertNotIn('is not a nonzero start difference',text)
 
     def test_completion_only_fills_null_fields(self):
-        self.clauses(completion_prompt(),
+        self.clauses(complete_event_prompt(),
                      r'only fill.*null',
                      r'non.null.*immutable.*exactly',
                      r'(?:never|do not).*paraphrase.*title',
@@ -148,19 +152,19 @@ class PromptContractTests(unittest.TestCase):
                      r'null location.*remain null')
 
     def test_completion_starts_from_exact_copy_and_unchanged_when_complete(self):
-        self.clauses(completion_prompt(),
+        self.clauses(complete_event_prompt(),
                      r'exact copy of the input event',
                      r'change only fields that were null',
                      r'location is never inferred.*null.*title names a place or\s+organization',
                      r'no field needs completion.*input event unchanged')
 
     def test_completion_never_derives_location(self):
-        self.clauses(completion_prompt(),
+        self.clauses(complete_event_prompt(),
                      r'location.*exactly equal.*input location',
                      r'(?:never|do not).*derive.*location.*title.*event identity.*code.*organization.*date_note')
 
     def test_explicit_zone_digits_and_offset_are_preserved_before_default(self):
-        self.clauses(extraction_prompt(),
+        self.clauses(extract_events_prompt(),
                      r'for every timed value, apply this order: 1\.',
                      r'explicitly supplies z, utc, or a numeric utc offset.*copy its date and clock digits exactly',
                      r'copy an explicit numeric offset exactly.*encode z and named utc as \+00:00 without changing the date or clock digits',
@@ -172,9 +176,9 @@ class PromptContractTests(unittest.TestCase):
                      r'resolve explicit unambiguous relative dates such as tomorrow from sent_date')
 
     def test_duplicate_guard_rejects_batch_and_extra_fields(self):
-        from local_agentic_triage.events.core import duplicate_results
+        from local_agentic_triage.classifier.events import _validate_duplicate_result
         for outcome in ('existing','possible_duplicate','create'):
-            self.assertEqual(duplicate_results({'outcome':outcome}),outcome)
+            self.assertEqual(_validate_duplicate_result({'outcome':outcome}),outcome)
         for invalid in ({'results':[]},{'outcome':'no_match'},{'outcome':'create','index':0},{}):
             with self.subTest(invalid=invalid),self.assertRaises(ValueError):
-                duplicate_results(invalid)
+                _validate_duplicate_result(invalid)

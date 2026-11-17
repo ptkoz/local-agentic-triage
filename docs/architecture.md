@@ -1,321 +1,115 @@
 # Architecture and failure semantics
 
-- `common` owns configuration and locking.
-- `classifier` owns separate summary and destination validation and the fixed loopback DMR
-  client.
-- `events` owns structural extraction, per-event duplicate checking, full event
-  completion, final creation validation, and the deterministic Calendar adapter.
-- `mail` owns Himalaya, MIME parsing, and poll orchestration.
-- `reporting` owns SQLite state, report rendering, and delivery.
-- Future SMS and log sources remain separate explicit modules.
-- The project does not need a plugin or dependency-injection framework;
-  constructors and functions accept small fakes in tests.
+## Component responsibilities
 
-## Mail
+- `common` owns configuration, strict JSON decoding, and process locking.
+- `classifier` owns LLM context preparation, inference, and response validation
+  across all model-assisted decisions.
+- `events` owns Calendar access, event eligibility policy, and verified event
+  creation.
+- `mail` owns mail access, MIME parsing, the immutable source mail, and pipeline
+  orchestration, including sequential per-candidate event processing.
+- `reporting` owns per-mail notification rendering and Discord delivery.
+- Other input sources remain separate pipelines rather than plugins in the mail
+  flow.
 
-Himalaya v2.1.0 is the only mail boundary, with explicitly configured account,
-mailboxes, absolute executable path, backend `imap`, and logging disabled.
-Python never loads Himalaya configuration or handles authentication. Raw
-commands on stdin select the configured inbox with IMAP quoted-string escaping
-and issue `UID SEARCH UNFLAGGED`, regardless of Seen.
-SELECT must succeed with numeric UIDVALIDITY and `\Flagged` in PERMANENTFLAGS;
-SEARCH must have one successful tagged completion and unique numeric UIDs.
-Identity combines account, mailbox, UIDVALIDITY and UID; all numeric identities
-are nonzero 32-bit unsigned values. No sequence-number commands are used. `imap store` uses `--` before the UID
-to terminate its variadic flag argument.
+## Mail boundary
 
-`himalaya message read -m <inbox> --raw UID` preserves Seen. Raw MIME is fetched
-without a size limit when `max_mail_bytes = 0` (the default), and stays bytes to
-avoid lossy JSON conversion. This deliberately accepts unbounded local memory
-use for one raw message; operators may set a positive limit. After MIME parsing,
-every model-facing mail field is
-bounded and the final compact JSON payload stays within 10,000 UTF-8 bytes, with
-an explicit truncation marker on each shortened field.
-A positive `max_mail_bytes` remains an optional raw-message limit. Mutations use
-JSON output, validating the exact success string emitted by v2.1.0; raw protocol
-parsing is limited to SELECT and UID SEARCH. Before read, leave or archive, another SELECT and
-exact `UID SEARCH UID <uid>` checks UIDVALIDITY and Inbox presence without
-filtering `\Flagged`. The same guard runs again after Seen and immediately
-before MOVE. A changed validity or missing UID stops the operation.
-Himalaya CLI calls create separate IMAP sessions: SELECT/search and the following
-read/store/move cannot bind atomically. Mailbox recreation between the final
-guard and the next command remains an explicitly accepted residual race for
-this simple Himalaya-only design; no direct IMAP/authentication path is added.
-MIME processing
-prefers nonattachment text/plain, falls back deterministically to HTML text,
-ignores script/style content, and skips attachment subtrees. Subject, sender,
-sent date and body go independently to the summary, destination, and extraction
-passes. The sent date is a separate JSON field, allowing relative dates to resolve
-against the message. Malformed MIME, oversized input, and invalid/truncated summary
-or destination classification cause no disposition. Event processing is optional
-enrichment: its failures are logged and do not block mail disposition.
+Himalaya is the only mail-system boundary. The application does not load mail
+credentials or open a second IMAP connection.
 
-## Five local-model stages
+Messages are identified by account, mailbox, UIDVALIDITY, and UID. The pipeline
+revalidates mailbox identity before reads and dispositions so a recreated
+mailbox or missing message fails closed. `Seen` is not a processing checkpoint;
+messages selected for processing exclude those already marked `Flagged`.
 
-All model operations use exactly docker.io/ai/ministral3-mail-8b:16k at
-http://127.0.0.1:12434/engines/v1/chat/completions, temperature 0, and a
-2048-token output budget.
-The shared transport disables proxies, rejects redirects, uses a timeout of at
-least 300 seconds, strictly decodes the API envelope and model content, rejects
-duplicate JSON keys and non-finite constants, and requires `finish_reason=stop`.
-There is no model-response byte cap: a response that finishes with `stop` and
-fits the model's token limit is read and handled in full. Each operation has a
-separate packaged operational prompt and closed strict JSON Schema. No model has
-tools or write authority.
+Raw mail remains local. MIME parsing selects the useful message text, and the
+classifier bounds all model-facing data. Invalid mail, failed classification,
+or failed mandatory notification leaves the message eligible for a later retry.
 
-The five entries below are logical stages, not a fixed five-request budget.
-Summary, destination, and extraction run once per mail. Duplicate checking and
-completion run separately for each extracted event, so a mail containing N
-events can make 3 + N duplicate requests plus as many completion requests as
-remain eligible for creation.
+## Per-mail flow
 
-1. **Summary generation.** The first request receives bounded mail JSON and
-   returns one factual Polish summary regardless of input language. Structural
-   summary validation remains fatal and retryable because archive reporting may
-   depend on this result.
+Each candidate follows one ordered flow:
 
-2. **Destination classification.** The second request receives separate
-   `summary` and unchanged bounded `mail` fields and returns only `leave` or
-   `archive`. Leave discards the generated summary from the final disposition;
-   archive retains it. Structural destination validation remains fatal and
-   retryable because disposition depends on this result.
+1. Read and parse the mail.
+2. Generate a mandatory nonempty summary.
+3. Classify the disposition as `archive` or `leave`.
+4. Render and validate the per-mail Discord notification.
+5. Run optional Calendar enrichment and approved sender-specific handoffs.
+6. Deliver the notification to Discord.
+7. Apply the selected mail disposition.
 
-3. **Event extraction.** The third request independently receives the same
-   bounded mail JSON and returns an `events` array. Every event object has the
-   structurally defined fields `title`, `start`, `end`, `date_note`, and
-   `location`; values may be null where permitted by the schema. `location` is
-   nullable and may contain an address or descriptive place only when the mail
-   provides direct evidence. Neither extraction nor completion may guess it.
-   Explicit date components are preserved. A missing year defaults to the year
-   from `sent_date`; when only the day of month is supplied, both month and year
-   default to `sent_date`, without rolling forward. Explicit unambiguous relative
-   dates also resolve against `sent_date`. Unzoned local times use Europe/Warsaw
-   with the offset valid on the event date; explicit timezones are preserved.
+Summary generation, disposition classification, notification validation,
+Discord delivery, and mail disposition are mandatory stages. Failure in any of
+them leaves the mail pending for retry. Optional enrichment failures are
+contained and do not prevent notification or disposition.
 
-   Python checks the closed JSON structure and field types required by the
-   extraction schema, followed by the minimum validation needed for Calendar
-   lookup. `start` must be either a valid `YYYY-MM-DD` all-day date or a valid
-   timezone-aware ISO 8601 timestamp. A null, missing, or empty `start` is
-   finalized locally as `skipped/missing_date`; a nonempty value that is not one
-   of those supported date forms is finalized as `skipped/invalid_date`. In both
-   cases the event never reaches Calendar, duplicate checking, completion, or
-   creation.
+## Local-model responsibilities
 
-   This gate does not normalize or repair the supplied start, does not evaluate
-   whether it is in the past or more than three days away, and does not validate
-   title, end, date_note, or location. Every field of a candidate that passes the
-   start gate is preserved exactly and all five fields are forwarded to duplicate
-   checking.
+All inference uses the configured loopback model. Mail content is not sent to a
+remote model, and models have no direct tool or write authority.
 
-4. **Per-event duplicate checking.** Each extracted event that passed the start
-   gate gets its own model request before any missing value is guessed. Python
-   uses that already validated, unchanged start to fetch the corresponding
-   Calendar window. The request then contains the complete extracted event
-   unchanged, including `date_note` and `location`, together with the minimal
-   nearby Calendar rows for that window. Nearby rows contain
-   title/start/end/all_day/location. Each lookup reads the current Calendar state,
-   including events successfully created while processing earlier candidates from
-   the same message. No completed or guessed version of the current event is
-   included.
+The model workflow has five logical responsibilities:
 
-   Every event reaching this stage has a syntactically valid start, so Python
-   performs the corresponding Calendar window lookup before calling the duplicate
-   model. A Calendar lookup error remains an event-enrichment failure and never
-   becomes an empty successful result. The duplicate model returns only
-   `existing`, `possible_duplicate`, or `create`. `existing` and
-   `possible_duplicate` end processing for that event. Only `create` authorizes
-   the completion stage. Duplicate checking never writes to Calendar.
+1. generate the summary;
+2. classify the mail disposition;
+3. extract possible calendar events;
+4. assess each candidate against current Calendar data;
+5. complete only candidates eligible for creation.
 
-5. **Per-event completion.** Each event authorized as `create` is sent unchanged
-   in a separate request to the completion model. Python does not first validate
-   its remaining fields, date syntax, start date, completeness, or temporal
-   eligibility. The completion model receives all five extracted fields and
-   returns one complete event object. It preserves start exactly and all other
-   directly supplied values, and makes the best supported inference for missing
-   fields needed for creation, including title, end, and resolution of
-   `date_note`. It must not invent
-   `location`; a null location stays null unless direct location evidence was
-   already present in the extracted event.
+Summary, classification, and extraction run once per mail. Duplicate assessment
+and completion run independently for each event candidate. Summary and
+classification remain separate so both `archive` and `leave` retain the same
+mandatory summary.
 
-   The completion response does not authorize a write by itself. Python performs
-   semantic and temporal validation only after completion.
+Model responses are treated as untrusted data. Structural and semantic
+validation remains in deterministic code, and malformed or incomplete results
+never authorize a side effect.
 
-### Final validation and write authorization
+## Calendar enrichment
 
-For each completed event, deterministic Python validates the whole final object:
+Calendar processing is optional enrichment and is isolated from the mandatory
+mail disposition path.
 
-- the object has exactly the supported event fields and field types;
-- title is nonempty and within the configured bound;
-- start and end form a complete, compatible all-day or timezone-aware timed
-  interval, and end is strictly after start;
-- a retained `date_note` does not block creation when the required fields and
-  concrete interval are valid;
-- location is null or a bounded nonempty string and is passed through only as
-  model data derived from direct evidence;
-- the event's end, rather than its start, determines the three-day horizon: a
-  timed end must be strictly later than `now + 72 hours`, and an all-day exclusive
-  end date must be strictly later than local `today + 3 calendar days`; therefore
-  a multi-day event may start sooner than the threshold and still qualify when it
-  ends beyond it;
-- the entire event is canonicalizable by the deterministic Calendar adapter.
+Event candidates are processed sequentially. Each candidate is compared with a
+fresh view of the configured Calendar before any creation decision, so a
+verified creation is visible to later candidates from the same mail. The model's
+`existing` and `possible_duplicate` outcomes both become one boolean duplicate
+decision and one `duplicate` pipeline result; duplicates are skipped without
+stopping the remaining candidates.
 
-### Sequential processing and write visibility
+Only a complete, validated event may be created. Eligibility is determined from
+the event end, not its start: timed events must end more than 72 elapsed hours
+in the future, while all-day events must end beyond three local calendar days.
+This policy is checked immediately before creation. Writes are limited to the
+configured calendar and are verified by readback. Calendar lookup, validation,
+creation, or verification failures do not block the mail's notification or
+disposition.
 
-Events from one extraction are processed sequentially in extraction order. Each
-event completes its entire lookup, duplicate decision, completion, final
-validation, and verified Calendar creation (or terminal skip) before processing
-the next event. Calendar lookups are fresh per event, never prefetched or reused
-across candidates; creation is not deferred until a batch has been processed.
+## Notification and disposition
 
-Consequently, if two extracted events describe the same occurrence, a successful
-creation of the first is visible to the second event's lookup. An `existing` or
-`possible_duplicate` decision terminates only the current event: no completion or
-creation follows for that event, and any remaining candidates may still proceed.
+Every processed mail produces one immediate Discord notification, regardless
+of whether its disposition is `archive` or `leave`. The complete notification
+must be valid before optional side effects begin and must be delivered
+successfully before the mailbox is changed.
 
-Only a final event passing every rule is created. Validation failures produce a
-fixed safe event outcome and no write. Each actual create repeats the temporal
-guard and verifies exact readback before the next candidate begins. A later
-write/readback failure can leave an earlier verified creation in place; retries
-rely on fresh per-event Calendar lookup and duplicate checking.
+- `leave` marks the message `Flagged` and keeps it in the Inbox.
+- `archive` moves the message to Archive without changing its read state.
 
-Model user payloads retain conservative input/context budgets and fail closed
-without truncating event or nearby data. All input strings are untrusted data in
-user-message JSON, never system-prompt instructions.
-
-## Calendar and disposition
-
-`events/calendar.py` owns a fixed JXA program invoked by `/usr/bin/osascript` with
-`shell=False` and a timeout. Event values travel solely as JSON on stdin, never
-as executable source. The adapter requires exactly one calendar with the
-configured name. Every event reaching duplicate checking already has a
-syntactically valid extraction-provided start, which selects its +/-7-day search
-window without inference or normalization. Search rows expose only title, start,
-end, all-day status, and location and are validated at the adapter boundary. An
-adapter/search failure fails that event's enrichment rather than masquerading as
-an empty result.
-
-The adapter creates only the final Python-validated title, start, end, all-day
-status, and optional location. It never edits, deletes, sets attendees, alarms,
-or notes, and never accesses another calendar's events. A null location is
-omitted. A non-null location is written exactly as validated. The created UID is
-read back from the configured calendar and title, temporal values, all-day status,
-and location are verified. Any search, model, final-validation, create, or
-readback failure is contained as optional event enrichment and does not block the
-mail's leave/archive disposition.
-
-There is deliberately no semantic or temporal eligibility gate before duplicate
-checking or completion. The strictly-more-than-three-days policy is evaluated
-from the final event end, not its start; interval checks and creation completeness
-checks likewise run only on the final completed event. This lets a multi-day event
-start within three days but still qualify when its validated end lies beyond the
-threshold. It also lets the duplicate model see the original sparse extraction
-and the completion model reason over every field before deterministic code
-decides whether the event is safe and complete enough to create.
-
-For leave, event processing is followed, whether successful or not, by
-`himalaya imap store -m <inbox> --flag \Flagged -- UID`, without changing Seen
-or writing SQLite. The standard system flag makes explicit leave decisions visible
-in mail clients. Existing HermesLeave keywords are neither migrated nor removed
-and do not count as processed: those Inbox messages are candidates again unless
-they independently already have `\Flagged`.
-
-For archive, deterministic code first renders and validates the eventual single
-Discord report row against `discord_limit`. Oversized rows fail before events,
-SQLite, Seen, or MOVE and are never split or truncated. Event processing is
-then followed, whether successful or not, by INSERT OR IGNORE of an immutable prepared report row with
-ready_at NULL. Only then does Himalaya verify UID presence, add raw `\Seen` by
-UID with `imap store --flag \Seen -- UID`, and move from the configured inbox to
-configured archive. Success sets ready_at, then immediately sends that row through
-Hermes when a delivery runner is supplied. Successful delivery sets reported_at
-to the actual delivery time. Delivery failure logs only safe metadata and leaves
-the row ready/unreported without failing the poll; scheduled reporting retries it.
-The production CLI explicitly injects subprocess.run; direct poll() calls default
-to no delivery, and tests can inject a synthetic runner. A prepared row found
-on retry preserves the original sender/summary, does not fetch the body, does
-not classify again, and does not rerun events. It retries IMAP finalization, then
-marks ready and attempts immediate delivery.
-A ready row is already finalized. SQLite uses WAL, a busy timeout and parameter
-binding. The `reports` table stores source_key, sender, the normalized message
-timestamp (`sent_at`), summary, created_at, ready_at and reported_at; the single-row `report_state` table preserves one
-in-progress scheduled run window across partial delivery failures. Separate
-`summary_meta` state stores the cutoff of the last successfully delivered mention.
-
-There is no transaction spanning IMAP and SQLite. At the beginning and end of
-every poll, reconciliation enumerates prepared rows with ready_at NULL. Only
-keys for the configured account/inbox/UIDVALIDITY are considered. An exact UID search
-without the `\Flagged` filter marks an absent UID ready: MOVE succeeded or the
-message was otherwise removed. Present UIDs remain for normal prepared retry.
-Search/validity failures leave rows unready and fail the poll. Reconciliation
-never reruns classification or events; after marking an absent row ready it
-attempts the same immediate delivery. It adds no queue or schema columns.
-If a Calendar call succeeds before a crash preceding prepare, the next call
-relies on configured-calendar semantic search to avoid duplication. A Seen update can succeed
-before a failed MOVE, and is safely repeated on retry.
-
-## Reports
-
-Ready, unreported rows sort by created_at then source_key. Scheduled reporting
-first sends every pending row, including backlog older than the scheduled run
-window, acknowledging each successful delivery immediately with its actual
-delivery time. There is no introduction. After all pending rows succeed, it
-captures a current summary cutoff and sends exactly one final summary. The count
-uses delivery acknowledgements (`reported_at`), not archive readiness: it includes
-rows in `(previous successful summary cutoff, current cutoff]`. When no successful
-summary cutoff exists, the first summary includes every acknowledged row through
-the current cutoff. Undelivered rows are excluded. For example:
-`<@USER_ID>, powyżej znajduje się informacja o **9 wiadomościach** przeniesionych do Archiwum od poprzedniego podsumowania.`
-The singular uses `1 wiadomości` and `przeniesionej`. A zero count does not mention
-the user and renders `Od poprzedniego podsumowania nie przeniesiono żadnych
-wiadomości do Archiwum.`
-
-The scheduled run window remains independently frozen in `report_state`, and
-`report_meta.last_end_at` remains its completed boundary. The actual successful
-mention cutoff is stored separately in `summary_meta.last_cutoff_at`; it is never
-derived from `MAX(reported_at)`. Existing installations seed it from the last
-completed `report_meta.last_end_at` boundary during migration. Existing frozen
-windows are preserved across upgrades; legacy `has_rows` state remains compatible
-but is no longer used for delivery or counting decisions.
-
-Each row is one Discord message in the form `**Archiwum**: Od **…** z dnia …`
-followed by the summary as a Discord quote.
-The displayed date comes from the message's valid Date header or, when that is
-missing, malformed or lacks a timezone, from its IMAP INTERNALDATE. Both are
-captured before disposition and converted to Europe/Warsaw; processing time is
-never substituted. Rows lacking a retained Date or INTERNALDATE render `data
-wiadomości niedostępna` and do not block the rest of the report. Each row is
-marked reported immediately after its own send succeeds. A failed row send leaves
-that row and all following rows pending and prevents the final summary. A failed
-summary does not advance the summary cutoff; its retry counts every report delivered
-since the previous successful mention, including deliveries made after the failure.
-Only successful summary delivery atomically stores the current cutoff, advances
-`report_meta.last_end_at`, and clears the scheduled window. A record that
-cannot fit the configured Discord limit fails before any delivery; records are
-not split or truncated. Sender and summary are emitted exactly as stored, without
-sanitization. There is no LLM call for report delivery.
-
-Discord delivery is at least once: a crash after sending a record but before
-marking it can cause that record to be duplicated on retry. There is no remote
-idempotency token in the required send command. No success is recorded before
-the subprocess exits successfully. Immediate and scheduled delivery hold the same
-blocking lock. New configurations set it explicitly; configurations from before
-this setting existed derive it by appending `.delivery` to `report_lock`. The
-scheduled run holds it from pending-row selection through summary persistence, so
-an immediate report cannot appear between the count cutoff and mention. An
-immediate sender rechecks `reported_at` after acquiring the lock, because a waiting
-scheduled run may already have delivered and acknowledged it.
+The pipeline is stateless and delivery is at least once. If delivery succeeds
+but the process fails before disposition completes, a later retry may send the
+notification again.
 
 ## eduVULCAN handoff
 
-Right after `validate_disposition(classifier(mail))`, the poll compares the address
-extracted from `mail.sender` case-insensitively to `noreply@vulcan.net.pl` and, on
-equality, calls `mail.vulcan.forward`. It runs the fixed
-`~/.local/bin/agentic-vulcan-orchestrator --config <fixed-private-config>` launcher
-with the exact raw bytes on stdin (`shell=False`) without waiting for autonomous
-repair. It first writes the bytes to an anonymous private
-temporary file, rewinds it, and starts the orchestrator in a new session with that
-file descriptor as stdin and both output streams connected to `/dev/null`. A successful
-spawn is logged as `agentic_vulcan_started uid=... result=started`; only a spawn
-exception is logged as `agentic_vulcan_failed uid=... result=failed`. Triage does not
-wait, inspect an exit status, supervise, or retry the child and immediately continues
-normal disposition. The orchestrator exclusively owns identify/read repair and
-rerunning its installed version.
+Mail from the approved eduVULCAN sender is handed to the external orchestrator
+after notification validation. The handoff receives the original raw message
+and owns all eduVULCAN-specific identification and repair behavior.
+
+The handoff is best-effort. Its failure does not block Discord delivery or the
+selected mail disposition, and triage does not supervise or retry the external
+workflow.
+
+## Scheduling
+
+One periodic poller runs the complete per-mail flow.

@@ -7,18 +7,17 @@ Use this runbook when investigating production failures. Investigation is read-o
 Launchd writes application output to:
 
 - `~/Library/Logs/local-agentic-triage/poll.log`
-- `~/Library/Logs/local-agentic-triage/report.log`
 
-Follow both logs with:
+Follow the log with:
 
 ```sh
-tail -F ~/Library/Logs/local-agentic-triage/{poll,report}.log
+tail -F ~/Library/Logs/local-agentic-triage/poll.log
 ```
 
 A poll error such as:
 
 ```text
-ERROR mail_item_failed item=23 uid=15318 uidvalidity=123 stage=classify error=model_content_json_invalid
+ERROR mail_item_failed item=23 uid=15318 uidvalidity=123 stage=summarize error=model_content_json_invalid
 ```
 
 contains only technical metadata:
@@ -26,14 +25,14 @@ contains only technical metadata:
 - `item` is the transient position in that poll's candidate list. Do not use it as an identifier.
 - `uid` is the IMAP UID in the configured Inbox. It is not global across mailboxes or a changed `UIDVALIDITY`.
 - `uidvalidity` is the mailbox generation that makes the UID historically unambiguous. Current builds include it in per-message start and failure logs.
-- `stage` is the last pipeline boundary entered. `classify` covers bounded mail-payload construction, the loopback DMR request, strict decoding of its response, and classification-schema validation.
+- `stage` is the last pipeline boundary entered. `summarize` covers the summary request and summary validation. `classify` covers the later destination request and disposition validation; it receives the already generated summary and returns only `archive` or `leave`.
 - `error` is generated from a controlled exception type. Exception text, subprocess input/output, headers, sender, subject, body, summary, and model output must never be printed or copied into logs or reports.
 
 Read the configured account and Inbox locally from the private `config.toml`; never copy their values into Git or a debugging report. `Mailbox.connect`, `require_uid`, and `source_key` in `mail/imap.py` show the mailbox selection, `UIDVALIDITY`, and UID-scoping rules.
 
-## Read-only replay of one classification
+## Read-only replay of summary and classification
 
-For an explicitly authorized investigation, replay only the read and local-classification stages:
+For an explicitly authorized investigation, replay only the read, summary, and local-classification stages:
 
 ```sh
 /absolute/path/to/python3.14 \
@@ -69,11 +68,11 @@ the installed application or restart its LaunchAgents.
 
 - selects only the configured Inbox and validates its current `UIDVALIDITY`;
 - verifies that the UID still exists, reads that message without setting flags, bounds the model payload, and calls only the fixed loopback summary and destination passes;
-- does not open SQLite, acquire production locks, run Calendar/event decisions, set `\Flagged`/`Seen`, move mail, or send a report;
-- logs only UID, UIDVALIDITY, stage, truncation field names, and a controlled error code;
-- returns 0 if classification currently succeeds and 1 if the replay fails.
+- does not acquire the production poll lock, run Calendar/event decisions, set `\Flagged`/`Seen`, move mail, or send a notification;
+- logs only UID, UIDVALIDITY, stage, and a controlled error code;
+- returns 0 if both model stages currently succeed and 1 if either replay stage fails.
 
-Do not use `mail poll` or `report send --deliver` for diagnosis. They have production side effects. Do not add temporary logging of private input or model output.
+Do not use `mail poll` for diagnosis. It has production side effects. Do not add temporary logging of private input or model output.
 
 A missing UID, a different mailbox, or `--uidvalidity` mismatch means the
 historical message cannot be replayed by that UID. The command rejects a
@@ -99,8 +98,10 @@ then receives separate summary and bounded-mail fields and returns only the disp
 Sparse extraction independently receives bounded mail JSON and returns complete
 title/start/end/date_note/location candidates. After start validation and nearby
 lookup, duplicate checking sees each extracted event unchanged plus minimal nearby
-title/start/end/all_day/location rows; it returns existing, possible_duplicate, or
-create. A create candidate enters completion with all extracted fields unchanged.
+title/start/end/all_day/location rows. The frozen model schema still returns
+existing, possible_duplicate, or create; `classifier/events.py` maps the first
+two to boolean true and create to false. A false candidate enters completion
+with all extracted fields unchanged.
 Completion returns one full event and is not allowed to alter directly supplied
 values or invent a location. Python validates each completed event's structure,
 authorization, interval, and temporal eligibility immediately before its individual
@@ -112,12 +113,12 @@ An event exception or invalid canonical event result produces one
 `mail_event_failed uid=... error=...` line, optionally with a bounded numeric
 `returncode`. This is optional-enrichment telemetry: it does not produce a
 second `mail_item_failed` line, make the poll fail, or prevent leave/archive.
-Summary, destination, read, report-row, and disposition errors remain fatal and
-retryable.
+Summary, destination, read, notification rendering/delivery, and disposition
+errors remain fatal and retryable.
 
 Older builds logged both decoder failures as `json_decode_error`. That legacy code alone is ambiguous: it proves strict JSON decoding failed but not which decoder failed. Use the read-only diagnostic command on the current build. If replay succeeds, report that the historical decoder location cannot be proven from legacy logs; do not infer it or claim a root cause from private output.
 
-Before trusting a result, compare the installed zipapp with the reviewed repository version or confirm the deployed commit. The implementation in `classifier/core.py`, `mail/pipeline.py`, and `mail/imap.py` is normative documentation for the exact boundaries above.
+Before trusting a result, compare the installed zipapp with the reviewed repository version or confirm the deployed commit. The implementation in `classifier/resources.py`, `classifier/disposition.py`, `classifier/events.py`, `classifier/transport.py`, `classifier/input.py`, `mail/event_pipeline.py`, `events/calendar.py`, `mail/pipeline.py`, and `mail/imap.py` is normative documentation for the exact boundaries above. `classifier/resources.py` is the single owner and loader of all five function-named prompt and output-schema resources; `classifier/transport.py` contains transport and limits only.
 
 ## Reporting an investigation
 
@@ -128,4 +129,4 @@ Report only:
 3. the corresponding code boundary;
 4. whether the result is confirmed by current replay or limited by legacy evidence.
 
-Do not repair, restart jobs, mutate mail, inspect Calendar, modify SQLite, or deliver reports unless the operator separately authorizes those actions.
+Do not repair, restart jobs, mutate mail, inspect Calendar, or deliver notifications unless the operator separately authorizes those actions.

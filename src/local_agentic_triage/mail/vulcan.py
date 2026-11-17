@@ -8,7 +8,7 @@ VULCAN_SENDER = 'noreply@vulcan.net.pl'
 log = logging.getLogger('local_agentic_triage')
 
 
-def forward(uid, raw, config):
+def delegate_to_vulcan_handler(uid, raw, config):
     """Best effort: log a fixed result and never raise."""
     try:
         home = Path.home()

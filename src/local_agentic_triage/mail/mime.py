@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from email import policy
 from email.parser import BytesParser
-from email.utils import parsedate_to_datetime
+from email.utils import parseaddr, parsedate_to_datetime
 from html.parser import HTMLParser
 
 class Text(HTMLParser):
@@ -19,6 +19,7 @@ class Text(HTMLParser):
 @dataclass(frozen=True)
 class Mail:
     sender: str
+    sender_address: str
     sent_date: str
     body: str
     subject: str = ''
@@ -44,4 +45,5 @@ def parse(raw,limit):
         if parsed.tzinfo is not None: sent_date=parsed.isoformat()
     except (TypeError,ValueError,OverflowError):
         pass
-    return Mail(str(message.get('From','')),sent_date,body,str(message.get('Subject','')))
+    sender=str(message.get('From',''))
+    return Mail(sender,parseaddr(sender)[1],sent_date,body,str(message.get('Subject','')))

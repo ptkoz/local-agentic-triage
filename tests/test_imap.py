@@ -11,7 +11,7 @@ def done(output): return subprocess.CompletedProcess([],0,output,b'')
 
 class HimalayaTests(unittest.TestCase):
     def test_uid_commands_and_identity(self):
-        with patch('subprocess.run',side_effect=[done(SELECT),done(SEARCH),done(SEARCH),done(b'From: synthetic\r\n\r\nbody'),done(SEARCH),done(b'{"message":"Flag(s) successfully added"}'),done(SEARCH),done(b'{"message":"Flag(s) successfully added"}'),done(SEARCH),done(b'{"message":"1 message successfully moved"}')]) as run:
+        with patch('subprocess.run',side_effect=[done(SELECT),done(SEARCH),done(SEARCH),done(b'From: synthetic\r\n\r\nbody'),done(SEARCH),done(b'{"message":"Flag(s) successfully added"}'),done(SEARCH),done(b'{"message":"1 message successfully moved"}')]) as run:
             box=Mailbox.connect(make_config(account='account-two',inbox='Inbox "Two"',archive='Archive \\ Two'))
             self.assertEqual(box.candidates(),['9','12'])
             self.assertEqual(box.raw('9'),b'From: synthetic\r\n\r\nbody')
@@ -22,8 +22,8 @@ class HimalayaTests(unittest.TestCase):
             self.assertEqual(calls[1].kwargs['input'],b'a1 SELECT "Inbox \\"Two\\""\r\na2 UID SEARCH UNFLAGGED\r\n')
             self.assertEqual(calls[3].args[0][-6:],['message','read','-m','Inbox "Two"','--raw','9'])
             self.assertEqual(calls[5].args[0][-8:],['imap','store','-m','Inbox "Two"','--flag','\\Flagged','--','9'])
-            self.assertEqual(calls[-3].args[0][-3:],['\\Seen','--','9'])
             self.assertEqual(calls[-1].args[0][-7:],['message','move','--from','Inbox "Two"','--to','Archive \\ Two','9'])
+            self.assertNotIn('\\Seen',[part for call in calls for part in call.args[0]])
             for call in calls:
                 self.assertIn('account-two',call.args[0]); self.assertFalse(call.kwargs['shell']); self.assertGreater(call.kwargs['timeout'],0)
     def test_reject_protocol_failure_and_invalid_uids(self):
@@ -35,6 +35,14 @@ class HimalayaTests(unittest.TestCase):
             for uid in ('1:*','0','01','4294967296'):
                 with self.assertRaises(ValueError): box.leave(uid)
             self.assertEqual(run.call_count,1)
+    def test_archive_moves_without_marking_seen(self):
+        with patch('subprocess.run',side_effect=[done(SELECT),done(SEARCH),done(b'{"message":"1 message successfully moved"}')]) as run:
+            Mailbox.connect(make_config()).archive('9')
+            calls=run.call_args_list
+            self.assertEqual(len(calls),3)
+            self.assertEqual(calls[-1].args[0][-7:],['message','move','--from','Test Inbox','--to','Test Archive','9'])
+            self.assertNotIn('\\Seen',[part for call in calls for part in call.args[0]])
+
     def test_search_validity_change_and_missing_uid_block_archive(self):
         for output in (SEARCH.replace(b'77',b'78'),SEARCH.replace(b'9 12',b'12'),SEARCH.replace(b'9 12',b'9 x'),SEARCH.replace(b'a2 OK',b'a2 NO')):
             with patch('subprocess.run',side_effect=[done(SELECT),done(output)]) as run:
