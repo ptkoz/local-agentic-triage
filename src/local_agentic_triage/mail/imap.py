@@ -168,9 +168,6 @@ class Mailbox:
 
     def archive(self, uid):
         uid = self.require_uid(uid)
-        self.mutation(['imap', 'store', '-m', self.config.inbox, '--flag',
-                       '\\Seen', '--', uid], 'Flag(s) successfully added')
-        self.require_uid(uid)
         self.mutation(['message', 'move', '--from', self.config.inbox, '--to',
                        self.config.archive, uid], '1 message successfully moved')
 

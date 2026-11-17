@@ -143,8 +143,17 @@ class PackagingTests(unittest.TestCase):
     def test_documentation_places_render_validation_before_optional_side_effects(self):
         architecture = (ROOT / 'docs/architecture.md').read_text()
         readme = (ROOT / 'README.md').read_text()
-        self.assertIn('Before optional event processing, deterministic code renders', architecture)
-        self.assertIn('After the mandatory notification has been rendered and validated', architecture)
+        render = architecture.index('Render and validate the per-mail Discord notification.')
+        optional = architecture.index('Run optional Calendar enrichment and approved sender-specific handoffs.')
+        deliver = architecture.index('Deliver the notification to Discord.')
+        disposition = architecture.index('Apply the selected mail disposition.')
+        self.assertLess(render, optional)
+        self.assertLess(optional, deliver)
+        self.assertLess(deliver, disposition)
+        self.assertIn('Eligibility is determined from', architecture)
+        self.assertIn('the event end, not its start', architecture)
+        self.assertIn('72 elapsed hours', architecture)
+        self.assertIn('three local calendar days', architecture)
         self.assertIn('after the mandatory notification has been rendered and validated', readme)
 
     def test_failed_build_preserves_existing_archive(self):

@@ -53,15 +53,13 @@ class ReviewTests(unittest.TestCase):
         self.assertEqual(json.loads(bodies[1]['messages'][1]['content']), {'event': EVENT})
         self.assertEqual(opened.call_args.kwargs['timeout'], 300)
 
-    def test_after_seen_guard_blocks_move(self):
+    def test_archive_guard_blocks_move(self):
         for bad in (SEARCH.replace(b'77', b'78'), SEARCH.replace(b'9 12', b'12')):
-            with patch('subprocess.run',
-                       side_effect=[done(SELECT), done(SEARCH),
-                                    done(b'{"message":"Flag(s) successfully added"}'), done(bad)]) as run:
+            with patch('subprocess.run', side_effect=[done(SELECT), done(bad)]) as run:
                 box = Mailbox(make_config())
                 with self.assertRaises(ValueError):
                     box.archive('9')
-                self.assertEqual(run.call_count, 4)
+                self.assertEqual(run.call_count, 2)
                 self.assertEqual(run.call_args.kwargs['input'],
                                  b'a1 SELECT "Test Inbox"\r\na2 UID SEARCH UID 9\r\n')
 

@@ -58,7 +58,7 @@ Calendar edits/deletes, attendees, alarms, or notes are exposed. A validated opt
 location may be created and verified.
 
 Every mail read/store/move has a fresh SELECT UIDVALIDITY and exact UID-existence
-guard, including a recheck after Seen before MOVE. Separate Himalaya CLI sessions
+guard immediately before the operation. Separate Himalaya CLI sessions
 prevent atomic binding: mailbox recreation between guard and operation remains
 an explicitly accepted residual race in this simple design. Credentials and
 direct IMAP clients remain outside the boundary.
