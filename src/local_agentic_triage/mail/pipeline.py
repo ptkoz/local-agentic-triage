@@ -55,11 +55,11 @@ def poll(mailbox, config, classifier=classify, event_processor=process_events, *
                  index, len(candidates), uid, mailbox.validity)
         stage = 'read'
         try:
-            raw = mailbox.raw(uid)
-            mail = parse(raw, config.max_mail_bytes)
-            if not mail.sent_date:
-                mail = replace(mail, sent_date=mailbox.internal_date(uid))
-            context_bound_mail = fit_to_context(mail, MAIL_PAYLOAD_BYTES)
+            raw_mail = mailbox.raw(uid)
+            parsed_mail = parse(raw_mail, config.max_mail_bytes)
+            if not parsed_mail.sent_date:
+                parsed_mail = replace(parsed_mail, sent_date=mailbox.internal_date(uid))
+            context_bound_mail = fit_to_context(parsed_mail, MAIL_PAYLOAD_BYTES)
             stage = 'summarize'
             log.info('mail_item_action item=%d uid=%s stage=summarize', index, uid)
             summary = summarizer(context_bound_mail)
@@ -70,14 +70,14 @@ def poll(mailbox, config, classifier=classify, event_processor=process_events, *
             # Validate the mandatory notification before optional side effects.
             stage = 'notify'
             notification = render_notification(
-                {'sender': mail.sender, 'summary': summary, 'sent_at': mail.sent_date},
+                {'sender': parsed_mail.sender, 'summary': summary, 'sent_at': parsed_mail.sent_date},
                 destination,
                 config.discord_limit,
             )
 
             # Optional: eduVULCAN handoff (best-effort)
-            if mail.sender_address.lower() == VULCAN_SENDER.lower():
-                delegate_to_vulcan_handler(uid, raw, config)
+            if parsed_mail.sender_address.lower() == VULCAN_SENDER.lower():
+                delegate_to_vulcan_handler(uid, raw_mail, config)
 
             # Optional: Calendar enrichment (best-effort)
             log.info('mail_item_action item=%d uid=%s stage=events', index, uid)
