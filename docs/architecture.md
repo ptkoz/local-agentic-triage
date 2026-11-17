@@ -8,7 +8,8 @@
   classification accepts that summary and returns only `archive` or `leave`.
 - `events` owns event extraction, duplicate assessment, completion, validation,
   and the Calendar boundary.
-- `mail` owns mail access, MIME parsing, and pipeline orchestration.
+- `mail` owns mail access, MIME parsing, one-time preparation of the bounded model
+  representation, and pipeline orchestration.
 - `reporting` owns per-mail notification rendering and Discord delivery.
 - Other input sources remain separate pipelines rather than plugins in the mail
   flow.

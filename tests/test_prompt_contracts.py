@@ -1,7 +1,7 @@
 """Offline semantic requirements for operational prompts (no model calls)."""
 import unittest
 
-from local_agentic_triage.classifier.core import disposition_prompt, summary_prompt
+from local_agentic_triage.classifier.helpers import disposition_prompt, summary_prompt
 from local_agentic_triage.events.core import completion_prompt, extraction_prompt, prompt
 
 

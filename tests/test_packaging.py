@@ -31,7 +31,7 @@ class PackagingTests(unittest.TestCase):
             result = subprocess.run([sys.executable, str(archive), '--help'], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             code = ("import sys; sys.path.insert(0,sys.argv[1]); "
-                    "from local_agentic_triage.classifier.core import CLASSIFICATION_SCHEMA,SUMMARY_SCHEMA; "
+                    "from local_agentic_triage.classifier.helpers import CLASSIFICATION_SCHEMA,SUMMARY_SCHEMA; "
                     "from local_agentic_triage.events.core import EXTRACTION_SCHEMA,DUPLICATE_SCHEMA,COMPLETION_SCHEMA; "
                     "assert all(s['json_schema']['strict'] for s in "
                     "(CLASSIFICATION_SCHEMA,SUMMARY_SCHEMA,EXTRACTION_SCHEMA,DUPLICATE_SCHEMA,COMPLETION_SCHEMA))")

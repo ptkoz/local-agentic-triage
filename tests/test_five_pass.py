@@ -2,16 +2,19 @@ import json
 import unittest
 from unittest.mock import patch, Mock
 from local_agentic_triage.classifier import core
+from local_agentic_triage.classifier import helpers as classifier_helpers
+from local_agentic_triage.classifier.helpers import disposition_prompt
 from local_agentic_triage.mail.mime import parse
+from local_agentic_triage.mail.model import prepare
 
 class FivePassTests(unittest.TestCase):
     def test_destination_pass_returns_only_disposition(self):
-        mail=parse(b'From: synthetic@example.invalid\n\nbody',1000)
-        with patch.object(core,'chat_completion',return_value={'destination':'leave'}) as chat:
+        mail=prepare(parse(b'From: synthetic@example.invalid\n\nbody',1000))[0]
+        with patch.object(classifier_helpers,'chat_completion',return_value={'destination':'leave'}) as chat:
             self.assertEqual(core.classify(mail,'Synthetic summary'),'leave')
         messages,schema=chat.call_args.args
         self.assertEqual(set(schema['json_schema']['schema']['properties']),{'destination'})
-        self.assertEqual(messages[0]['content'],core.disposition_prompt())
+        self.assertEqual(messages[0]['content'],disposition_prompt())
         self.assertEqual(messages[1]['content'],
             '{"summary": "Synthetic summary", "mail": {"metadata": {"sent_date": "", "sender": "synthetic@example.invalid", '
             '"subject": ""}, "body": "body"}}')
@@ -48,7 +51,8 @@ class FivePassTests(unittest.TestCase):
                 self.assertEqual(set(schema['required']),set(schema['properties']))
                 for child in schema['properties'].values(): check(child)
             if schema.get('type')=='array': check(schema['items'])
-        for schema in (core.CLASSIFICATION_SCHEMA,core.SUMMARY_SCHEMA,events.EXTRACTION_SCHEMA,events.DUPLICATE_SCHEMA,events.COMPLETION_SCHEMA):
+        for schema in (classifier_helpers.CLASSIFICATION_SCHEMA,classifier_helpers.SUMMARY_SCHEMA,
+                       events.EXTRACTION_SCHEMA,events.DUPLICATE_SCHEMA,events.COMPLETION_SCHEMA):
             self.assertIs(schema['json_schema']['strict'],True)
             check(schema['json_schema']['schema'])
 

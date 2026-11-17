@@ -3,9 +3,10 @@ import json
 from email.utils import parseaddr
 from dataclasses import replace
 from local_agentic_triage.mail.mime import parse
+from local_agentic_triage.mail.model import prepare
 from local_agentic_triage.mail.vulcan import VULCAN_SENDER, forward
 from local_agentic_triage.mail.imap import uid_value
-from local_agentic_triage.classifier.core import summarize, classify, bound_mail
+from local_agentic_triage.classifier.core import summarize, classify
 from local_agentic_triage.events.core import process, parse_results, extract
 from local_agentic_triage.common.diagnostics import error_code, error_suffix
 from local_agentic_triage.reporting.report import render_notification, deliver
@@ -25,7 +26,7 @@ def diagnose(mailbox, config, uid, classifier=classify, expected_validity=None, 
         mail = parse(mailbox.raw(uid), config.max_mail_bytes)
         if not mail.sent_date:
             mail = replace(mail, sent_date=mailbox.internal_date(uid))
-        mail, truncated = bound_mail(mail)
+        mail, truncated = prepare(mail)
         if truncated:
             log.info('mail_content_truncated uid=%s fields=%s', uid, ','.join(truncated))
         stage = 'summarize'
@@ -61,7 +62,7 @@ def poll(mailbox, config, classifier=classify, event_processor=process, *, summa
             mail = parse(raw, config.max_mail_bytes)
             if not mail.sent_date:
                 mail = replace(mail, sent_date=mailbox.internal_date(uid))
-            mail, truncated = bound_mail(mail)
+            mail, truncated = prepare(mail)
             if truncated:
                 log.info('mail_content_truncated uid=%s fields=%s', uid, ','.join(truncated))
             stage = 'summarize'

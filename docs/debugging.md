@@ -116,7 +116,7 @@ errors remain fatal and retryable.
 
 Older builds logged both decoder failures as `json_decode_error`. That legacy code alone is ambiguous: it proves strict JSON decoding failed but not which decoder failed. Use the read-only diagnostic command on the current build. If replay succeeds, report that the historical decoder location cannot be proven from legacy logs; do not infer it or claim a root cause from private output.
 
-Before trusting a result, compare the installed zipapp with the reviewed repository version or confirm the deployed commit. The implementation in `classifier/core.py`, `mail/pipeline.py`, and `mail/imap.py` is normative documentation for the exact boundaries above.
+Before trusting a result, compare the installed zipapp with the reviewed repository version or confirm the deployed commit. The implementation in `classifier/core.py`, `classifier/helpers.py`, `mail/model.py`, `mail/pipeline.py`, and `mail/imap.py` is normative documentation for the exact boundaries above.
 
 ## Reporting an investigation
 

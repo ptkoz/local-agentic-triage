@@ -78,7 +78,7 @@ class ArchitectureTests(unittest.TestCase):
                 core.completion_results(supplied|{key:'replacement'},supplied)
 
     def test_transport_full_response_and_strict_utf8(self):
-        from local_agentic_triage.classifier import core as transport
+        from local_agentic_triage.classifier import helpers as transport
         from test_events import decision_response
         response=decision_response({'value':'x'*1_000_001})
         with patch('urllib.request.OpenerDirector.open',return_value=response) as opened:
@@ -205,7 +205,8 @@ class ArchitectureTests(unittest.TestCase):
 
     def test_extraction_only_checks_closed_structure_and_types(self):
         from local_agentic_triage.mail.mime import parse
-        mail=parse(b'From: synthetic@example.invalid\n\nbody',1000)
+        from local_agentic_triage.mail.model import prepare
+        mail=prepare(parse(b'From: synthetic@example.invalid\n\nbody',1000))[0]
         candidate={key:None for key in EVENT}
         for value in (candidate,EVENT|{'end':'bad','title':'','location':''}):
             with patch.object(core,'chat_completion',return_value={'events':[value]}):

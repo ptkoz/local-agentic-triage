@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import Mock, patch
 from helpers import make_config
-from local_agentic_triage.classifier.core import (ModelContentJsonInvalid,
+from local_agentic_triage.classifier.helpers import (ModelContentJsonInvalid,
     ModelEnvelopeJsonInvalid, NoRedirect)
 from local_agentic_triage.common.diagnostics import error_code
 from local_agentic_triage.events.core import process, parse_results, prompt, completion_results, duplicate_results
@@ -55,7 +55,7 @@ class EventTests(unittest.TestCase):
 
 
     def test_event_source_has_no_second_transport_or_stream_parser(self):
-        import local_agentic_triage.classifier.core as classifier
+        import local_agentic_triage.classifier.helpers as classifier
         import local_agentic_triage.events.core as events
         text=Path(events.__file__).read_text(encoding='utf-8')
         for banned in ('subprocess','urllib','stream-json','parse_stream_envelope','DELIMITER','MAX_STREAM_','--toolsets','query-file','[content truncated]'):

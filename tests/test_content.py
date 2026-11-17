@@ -1,14 +1,28 @@
 import unittest
+import inspect
 from pathlib import Path
 from local_agentic_triage.mail.mime import parse
-from local_agentic_triage.classifier.core import (ModelContentJsonInvalid,
-    ModelEnvelopeJsonInvalid, classify, summarize, mail_payload,
-    mail_source)
+from local_agentic_triage.mail.model import PreparedMail, prepare
+from local_agentic_triage.classifier.core import classify, summarize
+from local_agentic_triage.classifier import helpers as classifier_helpers
+from local_agentic_triage.classifier.helpers import (CLASSIFICATION_SCHEMA,
+    SUMMARY_SCHEMA, ModelContentJsonInvalid, ModelEnvelopeJsonInvalid,
+    disposition_prompt)
 from unittest.mock import patch
 import json
 from local_agentic_triage.common.diagnostics import error_code
 
 class ContentTests(unittest.TestCase):
+    def test_classifier_core_exposes_only_domain_functions(self):
+        import local_agentic_triage.classifier.core as core
+        functions = {
+            name for name, value in inspect.getmembers(core, inspect.isfunction)
+            if value.__module__ == core.__name__
+        }
+        self.assertEqual(functions, {
+            'validate_destination', 'validate_summary', 'summarize', 'classify',
+        })
+
     def test_mime(self):
         raw=b'Date: Wed, 01 Jan 2025 12:00:00 +0100\nFrom: A <a@example.invalid>\nContent-Type: multipart/mixed; boundary=x\n\n--x\nContent-Type: text/html\n\n<p>Hello &amp; world</p><script>evil</script>\n--x\nContent-Type: text/plain\nContent-Disposition: attachment\n\nSECRET\n--x--\n'
         m=parse(raw,1000)
@@ -31,7 +45,7 @@ class ContentTests(unittest.TestCase):
             def __exit__(self,*a): pass
             def read(self,n=None): return json.dumps({'choices':[{'finish_reason':'length','message':{'content':'{}'}}]}).encode()
         with patch('urllib.request.OpenerDirector.open',return_value=Response()) as call:
-            with self.assertRaises(ValueError): summarize(parse(b'Date: today\n\nbody',100))
+            with self.assertRaises(ValueError): summarize(prepare(parse(b'Date: today\n\nbody',100))[0])
             req=call.call_args.args[0]; data=json.loads(req.data)
             self.assertEqual(req.full_url,'http://127.0.0.1:12434/engines/v1/chat/completions')
             self.assertEqual(data['model'],'docker.io/ai/ministral3-mail-8b:16k')
@@ -43,15 +57,15 @@ class ContentTests(unittest.TestCase):
 
     def test_summarize_and_classify_are_separate_requests(self):
         import local_agentic_triage.classifier.core as core
-        mail=parse(b'Date: Wed, 01 Jan 2025 12:00:00 +0100\nSubject: Synthetic\n\nbody',100)
-        with patch.object(core,'chat_completion',side_effect=[
+        mail=prepare(parse(b'Date: Wed, 01 Jan 2025 12:00:00 +0100\nSubject: Synthetic\n\nbody',100))[0]
+        with patch.object(classifier_helpers,'chat_completion',side_effect=[
                 {'summary':'Syntetyczne podsumowanie.'},{'destination':'leave'}]) as chat:
             summary=summarize(mail)
             self.assertEqual(summary,'Syntetyczne podsumowanie.')
             self.assertEqual(classify(mail,summary),'leave')
         self.assertEqual(chat.call_count,2)
-        self.assertIs(chat.call_args_list[0].args[1],core.SUMMARY_SCHEMA)
-        self.assertIs(chat.call_args_list[1].args[1],core.CLASSIFICATION_SCHEMA)
+        self.assertIs(chat.call_args_list[0].args[1],SUMMARY_SCHEMA)
+        self.assertIs(chat.call_args_list[1].args[1],CLASSIFICATION_SCHEMA)
         source={'metadata':{'sent_date':'2025-01-01T12:00:00+01:00','sender':'','subject':'Synthetic'},'body':'body'}
         self.assertEqual(chat.call_args_list[0].args[0][1]['content'],
             '{"metadata":{"sent_date":"2025-01-01T12:00:00+01:00","sender":"","subject":"Synthetic"},"body":"body"}')
@@ -60,16 +74,16 @@ class ContentTests(unittest.TestCase):
             '{"metadata": {"sent_date": "2025-01-01T12:00:00+01:00", "sender": "", "subject": "Synthetic"}, "body": "body"}}')
         self.assertEqual(json.loads(chat.call_args_list[1].args[0][1]['content'])['mail'],source)
 
-        with patch.object(core,'chat_completion',return_value={'destination':'archive'}) as chat:
+        with patch.object(classifier_helpers,'chat_completion',return_value={'destination':'archive'}) as chat:
             self.assertEqual(classify(mail,'Syntetyczne podsumowanie.'),'archive')
         self.assertEqual(chat.call_count,1)
-        self.assertEqual(chat.call_args.args[0][0]['content'],core.disposition_prompt())
+        self.assertEqual(chat.call_args.args[0][0]['content'],disposition_prompt())
 
 
     def test_http_requests_serialize_exact_source_without_recipient(self):
         raw=(b'From: =?utf-8?q?Zo=C5=BCa?= <sender@example.invalid>\nTo: recipient@example.invalid\n'
              b'Subject: Synthetic\nDate: Wed, 01 Jan 2025 12:00:00 +0100\n\nSynthetic body')
-        mail=parse(raw,1000)
+        mail=prepare(parse(raw,1000))[0]
         class Response:
             def __init__(self,content): self.content=content
             def __enter__(self): return self
@@ -96,8 +110,8 @@ class ContentTests(unittest.TestCase):
 
     def test_classify_does_not_revalidate_summary(self):
         import local_agentic_triage.classifier.core as core
-        mail=parse(b'From: sender@example.invalid\n\nSynthetic',1000)
-        with patch.object(core,'chat_completion',return_value={'destination':'archive'}), \
+        mail=prepare(parse(b'From: sender@example.invalid\n\nSynthetic',1000))[0]
+        with patch.object(classifier_helpers,'chat_completion',return_value={'destination':'archive'}), \
              patch.object(core,'validate_summary',side_effect=AssertionError('redundant validation')):
             self.assertEqual(classify(mail,'Opis.'),'archive')
 
@@ -107,7 +121,7 @@ class ContentTests(unittest.TestCase):
             def __enter__(self): return self
             def __exit__(self,*a): pass
             def read(self,n=None): return self.payload
-        mail=parse(b'Date: Wed, 01 Jan 2025 12:00:00 +0100\n\nbody',100)
+        mail=prepare(parse(b'Date: Wed, 01 Jan 2025 12:00:00 +0100\n\nbody',100))[0]
         with patch('urllib.request.OpenerDirector.open',return_value=Response(b'not json')):
             with self.assertRaises(ModelEnvelopeJsonInvalid): summarize(mail)
         for envelope in ({}, {'choices':[]}, {'choices':[{}]},
@@ -138,13 +152,30 @@ class ContentTests(unittest.TestCase):
     def test_model_input_bounds_every_mail_field(self):
         from types import SimpleNamespace
         mail=SimpleNamespace(sent_date='d'*200001,sender='s'*200001,subject='t'*200001,body='b'*200001)
-        payload=mail_payload(mail)
+        prepared,truncated=prepare(mail)
+        payload={field:getattr(prepared,field) for field in ('sent_date','sender','subject','body')}
         encoded=json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode()
         self.assertLessEqual(len(encoded),10000)
         for field in ('sent_date','sender','subject','body'):
             self.assertLess(len(payload[field]),200001)
             self.assertTrue(payload[field].endswith('[content truncated]'))
-        source=mail_source(mail)
+        self.assertEqual(truncated,('sent_date','sender','subject','body'))
+        source=prepared.source
         self.assertEqual(set(source),{'metadata','body'})
         self.assertEqual(set(source['metadata']),{'sent_date','sender','subject'})
         self.assertLessEqual(len(json.dumps(source,ensure_ascii=False,separators=(',',':')).encode()),10000)
+
+    def test_prepared_mail_is_frozen_and_precomputes_source_once(self):
+        mail=parse(b'From: sender@example.invalid\nSubject: Synthetic\n\nbody',1000)
+        prepared,truncated=prepare(mail)
+        self.assertIsInstance(prepared,PreparedMail)
+        self.assertEqual(truncated,())
+        self.assertEqual(prepared.source_json,
+            '{"metadata":{"sent_date":"","sender":"sender@example.invalid","subject":"Synthetic"},"body":"body"}')
+        self.assertEqual(json.loads(prepared.source_json),prepared.source)
+        with self.assertRaises((AttributeError,TypeError)):
+            prepared.sender='changed'
+        with self.assertRaises(TypeError):
+            prepared.source['body']='changed'
+        with self.assertRaises(TypeError):
+            prepared.source['metadata']['sender']='changed'

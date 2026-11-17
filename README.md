@@ -132,7 +132,7 @@ The poll LaunchAgent runs every 300 seconds. See
    absolute.
 5. Before allowing live effects, verify the external dependencies separately:
    Himalaya v2.1.0 can access the configured account and both mailboxes; Docker
-   Model Runner is running the model documented in `classifier/core.py` on its
+   Model Runner is running the model documented in `classifier/helpers.py` on its
    loopback endpoint; Hermes has valid Discord delivery credentials; and the target
    Calendar exists with Calendar Automation/TCC permission granted to the
    production process. A GUI login

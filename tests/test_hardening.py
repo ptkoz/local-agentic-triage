@@ -3,6 +3,7 @@ import unittest
 from unittest.mock import Mock,patch
 from local_agentic_triage.classifier.core import classify,summarize
 from local_agentic_triage.mail.mime import parse
+from local_agentic_triage.mail.model import prepare
 from local_agentic_triage.common.config import load
 from pathlib import Path
 import tempfile
@@ -17,7 +18,7 @@ class HardeningTests(unittest.TestCase):
             response('{"summary":"Synthetic summary"}'),
             response('{"destination":"leave"}')]
         with patch('urllib.request.build_opener',return_value=opener) as build,patch('urllib.request.urlopen',side_effect=AssertionError('unsafe open')):
-            mail=parse(b'From: sender\nSubject: title\nDate: Wed, 01 Jan 2025 12:00:00 +0100\n\nbody',1000)
+            mail=prepare(parse(b'From: sender\nSubject: title\nDate: Wed, 01 Jan 2025 12:00:00 +0100\n\nbody',1000))[0]
             summary=summarize(mail)
             classify(mail,summary)
             handlers=build.call_args.args

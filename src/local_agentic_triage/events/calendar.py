@@ -3,7 +3,7 @@ from datetime import date, datetime, timedelta, time, timezone
 from zoneinfo import ZoneInfo
 import json
 import subprocess
-from local_agentic_triage.classifier.core import strict_json
+from local_agentic_triage.classifier.helpers import strict_json
 
 # This source is constant. The only input is a JSON document read from stdin.
 SCRIPT=r'''
