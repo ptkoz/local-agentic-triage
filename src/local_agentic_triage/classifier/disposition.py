@@ -1,6 +1,7 @@
 from typing import Literal
 
 from local_agentic_triage.classifier import helpers
+from local_agentic_triage.classifier import resources as _resources
 from local_agentic_triage.classifier.input import (ContextBoundMail,
     serialize_destination_input, serialize_mail)
 
@@ -23,13 +24,13 @@ def validate_summary(obj):
 
 def summarize(context_bound_mail: ContextBoundMail) -> str:
     return validate_summary(helpers.chat_completion([
-        {'role':'system','content':helpers.summary_prompt()},
+        {'role':'system','content':_resources.summarize_prompt()},
         {'role':'user','content':serialize_mail(context_bound_mail)},
-    ],helpers.SUMMARY_SCHEMA))['summary']
+    ],_resources.SUMMARIZE_OUTPUT_SCHEMA))['summary']
 
 
 def classify(context_bound_mail: ContextBoundMail,summary: str) -> Literal['archive','leave']:
     return validate_destination(helpers.chat_completion([
-        {'role':'system','content':helpers.disposition_prompt()},
+        {'role':'system','content':_resources.classify_prompt()},
         {'role':'user','content':serialize_destination_input(context_bound_mail,summary)},
-    ],helpers.CLASSIFICATION_SCHEMA))['destination']
+    ],_resources.CLASSIFY_OUTPUT_SCHEMA))['destination']

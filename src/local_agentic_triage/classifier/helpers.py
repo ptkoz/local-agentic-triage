@@ -1,4 +1,3 @@
-from importlib.resources import files
 import json
 import urllib.request
 
@@ -12,15 +11,6 @@ LOCAL_MODEL_CONTEXT_TOKEN_LIMIT=16384
 LOCAL_MODEL_OUTPUT_TOKEN_LIMIT=2048
 # Maximum duration of one request to the loopback model endpoint.
 LOCAL_MODEL_REQUEST_TIMEOUT_SECONDS=300
-
-
-def response_schema(package,name):
-    return json.loads(files(package).joinpath(name+'.json').read_text(encoding='utf-8'))
-
-
-CLASSIFICATION_SCHEMA=response_schema(__package__,'destination')
-SUMMARY_SCHEMA=response_schema(__package__,'summary')
-
 
 class ModelEnvelopeJsonInvalid(ValueError):
     pass
@@ -64,11 +54,3 @@ def chat_completion(messages,response_format):
         return strict_json(content)
     except (TypeError,ValueError,UnicodeError):
         raise ModelContentJsonInvalid from None
-
-
-def disposition_prompt():
-    return files(__package__).joinpath('destination.md').read_text(encoding='utf-8')
-
-
-def summary_prompt():
-    return files(__package__).joinpath('summary.md').read_text(encoding='utf-8')

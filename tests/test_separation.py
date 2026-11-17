@@ -17,6 +17,22 @@ EVENT = {
 
 
 class SeparationTests(unittest.TestCase):
+    def test_model_resources_have_one_explicit_public_owner(self):
+        from local_agentic_triage.classifier import disposition, events, helpers, resources
+        expected = {
+            'SUMMARIZE_OUTPUT_SCHEMA', 'CLASSIFY_OUTPUT_SCHEMA',
+            'EXTRACT_EVENTS_OUTPUT_SCHEMA', 'IS_DUPLICATE_OUTPUT_SCHEMA',
+            'COMPLETE_EVENT_OUTPUT_SCHEMA', 'summarize_prompt', 'classify_prompt',
+            'extract_events_prompt', 'is_duplicate_prompt', 'complete_event_prompt',
+        }
+        self.assertEqual(set(resources.__all__), expected)
+        self.assertEqual({name for name in vars(resources) if not name.startswith('_')}, expected)
+        for module in (helpers, disposition, events):
+            self.assertFalse(any(name.endswith('OUTPUT_SCHEMA') for name in vars(module)))
+        for name in expected:
+            self.assertFalse(hasattr(helpers, name))
+        self.assertFalse(hasattr(helpers, 'response_schema'))
+
     def test_disposition_has_exact_public_function_surface(self):
         from local_agentic_triage.classifier import disposition
         functions = {name for name, value in inspect.getmembers(disposition, inspect.isfunction)

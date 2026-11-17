@@ -3,9 +3,10 @@
 ## Component responsibilities
 
 - `common` owns configuration, strict JSON decoding, and process locking.
-- `classifier` owns the complete LLM boundary: adapting domain inputs to the
-  bounded model context, invoking the local model, and validating model outputs
-  before exposing them to deterministic application logic.
+- `classifier` owns the complete LLM boundary: `resources.py` centrally loads
+  the function-named prompts and output schemas, `helpers.py` provides transport
+  and limits, and the domain modules adapt bounded inputs and validate model
+  outputs before exposing them to deterministic application logic.
 - `events` owns only the configured Calendar boundary: lookup normalization,
   independent input validation, canonicalization, horizon checks, creation, and
   readback verification.

@@ -1,13 +1,12 @@
 from datetime import date as _date, datetime as _datetime
-from importlib.resources import files as _files
 import json as _json
 import re as _re
 
+from local_agentic_triage.classifier import resources as _resources
 from local_agentic_triage.classifier.helpers import (
     LOCAL_MODEL_CONTEXT_TOKEN_LIMIT as _LOCAL_MODEL_CONTEXT_TOKEN_LIMIT,
     LOCAL_MODEL_OUTPUT_TOKEN_LIMIT as _LOCAL_MODEL_OUTPUT_TOKEN_LIMIT,
     chat_completion as _chat_completion,
-    response_schema as _response_schema,
 )
 from local_agentic_triage.classifier.input import (
     ContextBoundMail as _ContextBoundMail,
@@ -19,9 +18,6 @@ __all__ = ('extract_events', 'is_duplicate', 'complete_event')
 
 _EVENT_FIELDS = {'title', 'start', 'end', 'date_note', 'location'}
 _EVENT_TEMPLATE_OVERHEAD_BYTES = 1024
-_DUPLICATE_SCHEMA = _response_schema(__package__, 'duplicate')
-_COMPLETION_SCHEMA = _response_schema(__package__, 'completion')
-_EXTRACTION_SCHEMA = _response_schema(__package__, 'extraction')
 
 
 class _ModelRequestFailed(RuntimeError):
@@ -29,10 +25,6 @@ class _ModelRequestFailed(RuntimeError):
 
 
 _ModelRequestFailed.__name__ = 'ModelRequestFailed'
-
-
-def _prompt(name):
-    return _files(__package__).joinpath(name + '.md').read_text(encoding='utf-8')
 
 
 def _timestamp(value):
@@ -65,8 +57,8 @@ def _validate_events(events):
 
 
 def _event_user_budget(system=None, schema=None):
-    system = system or _prompt('duplicate')
-    schema = schema or _DUPLICATE_SCHEMA
+    system = system or _resources.is_duplicate_prompt()
+    schema = schema or _resources.IS_DUPLICATE_OUTPUT_SCHEMA
     reserved = (len(system.encode('utf-8')) + len(_json.dumps(schema).encode('utf-8'))
                 + _EVENT_TEMPLATE_OVERHEAD_BYTES + _LOCAL_MODEL_OUTPUT_TOKEN_LIMIT)
     budget = _LOCAL_MODEL_CONTEXT_TOKEN_LIMIT - reserved
@@ -111,9 +103,9 @@ def _completion_result(result, event):
 
 def extract_events(context_bound_mail: _ContextBoundMail):
     result = _chat_completion([
-        {'role': 'system', 'content': _prompt('extraction')},
+        {'role': 'system', 'content': _resources.extract_events_prompt()},
         {'role': 'user', 'content': _serialize_mail(context_bound_mail)},
-    ], _EXTRACTION_SCHEMA)
+    ], _resources.EXTRACT_EVENTS_OUTPUT_SCHEMA)
     if not isinstance(result, dict) or set(result) != {'events'}:
         raise ValueError('event_extraction_keys')
     _validate_events(result['events'])
@@ -123,7 +115,7 @@ def extract_events(context_bound_mail: _ContextBoundMail):
 def is_duplicate(event, nearby) -> bool:
     _validate_events([event])
     outcome = _duplicate_result(_model_batch(
-        _prompt('duplicate'), _DUPLICATE_SCHEMA,
+        _resources.is_duplicate_prompt(), _resources.IS_DUPLICATE_OUTPUT_SCHEMA,
         {'event': event, 'nearby': nearby},
     ))
     return outcome in ('existing', 'possible_duplicate')
@@ -132,5 +124,6 @@ def is_duplicate(event, nearby) -> bool:
 def complete_event(event):
     _validate_events([event])
     result = _model_batch(
-        _prompt('completion'), _COMPLETION_SCHEMA, {'event': event})
+        _resources.complete_event_prompt(), _resources.COMPLETE_EVENT_OUTPUT_SCHEMA,
+        {'event': event})
     return _completion_result(result, event)

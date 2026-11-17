@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from unittest.mock import patch
 from helpers import make_config
 from local_agentic_triage.classifier import events as classifier_events
+from local_agentic_triage.classifier import resources
 from local_agentic_triage.events import calendar
 from local_agentic_triage.mail import event_pipeline
 
@@ -17,7 +18,7 @@ class ArchitectureTests(unittest.TestCase):
             order.append('lookup'); return list(rows)
         def model(system,schema,payload):
             self.assertEqual(payload['event'],EVENT)
-            if schema is classifier_events._DUPLICATE_SCHEMA:
+            if schema is resources.IS_DUPLICATE_OUTPUT_SCHEMA:
                 order.append('duplicate')
                 self.assertEqual(payload['nearby'],rows)
                 return {'outcome':'existing' if rows else 'create'}
@@ -48,11 +49,11 @@ class ArchitectureTests(unittest.TestCase):
                 def model(system,schema,payload):
                     event=first if order.count('search')==1 else second
                     self.assertEqual(payload['event'],event)
-                    if schema is classifier_events._DUPLICATE_SCHEMA:
+                    if schema is resources.IS_DUPLICATE_OUTPUT_SCHEMA:
                         order.append('duplicate')
                         self.assertEqual(payload['nearby'],[])
                         return {'outcome':'create'}
-                    self.assertIs(schema,classifier_events._COMPLETION_SCHEMA)
+                    self.assertIs(schema,resources.COMPLETE_EVENT_OUTPUT_SCHEMA)
                     order.append('completion')
                     return dict(event)
                 with patch.object(classifier_events,'_model_batch',side_effect=model),patch.object(Calendar,'call',side_effect=call):
@@ -120,7 +121,7 @@ class ArchitectureTests(unittest.TestCase):
         create.assert_called_once_with(EVENT)
         payloads=[json.loads(c.args[0][1]['content']) for c in chat.call_args_list]
         self.assertEqual(payloads,[{'event':EVENT,'nearby':[]},{'event':EVENT}])
-        self.assertEqual([c.args[1] for c in chat.call_args_list],[classifier_events._DUPLICATE_SCHEMA,classifier_events._COMPLETION_SCHEMA])
+        self.assertEqual([c.args[1] for c in chat.call_args_list],[resources.IS_DUPLICATE_OUTPUT_SCHEMA,resources.COMPLETE_EVENT_OUTPUT_SCHEMA])
         self.assertEqual(result['results'][0]['outcome'],'created')
 
     def test_sparse_nullable_fields_are_completed_after_duplicate(self):
@@ -284,7 +285,7 @@ class ArchitectureTests(unittest.TestCase):
             self.assertEqual(json.loads(messages[1]['content'])['event'],candidate)
 
     def test_context_budget_counts_utf8_without_truncation(self):
-        system=classifier_events._prompt('duplicate');schema=classifier_events._DUPLICATE_SCHEMA
+        system=resources.is_duplicate_prompt();schema=resources.IS_DUPLICATE_OUTPUT_SCHEMA
         budget=classifier_events._event_user_budget(system,schema)
         self.assertEqual(budget+len(system.encode())+len(json.dumps(schema).encode())+classifier_events._LOCAL_MODEL_OUTPUT_TOKEN_LIMIT+classifier_events._EVENT_TEMPLATE_OVERHEAD_BYTES,classifier_events._LOCAL_MODEL_CONTEXT_TOKEN_LIMIT)
         payload={'event':EVENT,'nearby':[{'title':'🙂'*budget}]}

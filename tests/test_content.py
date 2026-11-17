@@ -8,9 +8,10 @@ from local_agentic_triage.classifier import input as classifier_input
 from local_agentic_triage.classifier.input import ContextBoundMail, fit_to_context
 from local_agentic_triage.classifier.disposition import classify, summarize
 from local_agentic_triage.classifier import helpers as classifier_helpers
-from local_agentic_triage.classifier.helpers import (CLASSIFICATION_SCHEMA,
-    SUMMARY_SCHEMA, ModelContentJsonInvalid, ModelEnvelopeJsonInvalid,
-    disposition_prompt)
+from local_agentic_triage.classifier.helpers import (ModelContentJsonInvalid,
+    ModelEnvelopeJsonInvalid)
+from local_agentic_triage.classifier.resources import (CLASSIFY_OUTPUT_SCHEMA,
+    SUMMARIZE_OUTPUT_SCHEMA, classify_prompt)
 from unittest.mock import patch
 import json
 from local_agentic_triage.common.diagnostics import error_code
@@ -68,8 +69,8 @@ class ContentTests(unittest.TestCase):
             self.assertEqual(summary,'Syntetyczne podsumowanie.')
             self.assertEqual(classify(mail,summary),'leave')
         self.assertEqual(chat.call_count,2)
-        self.assertIs(chat.call_args_list[0].args[1],SUMMARY_SCHEMA)
-        self.assertIs(chat.call_args_list[1].args[1],CLASSIFICATION_SCHEMA)
+        self.assertIs(chat.call_args_list[0].args[1],SUMMARIZE_OUTPUT_SCHEMA)
+        self.assertIs(chat.call_args_list[1].args[1],CLASSIFY_OUTPUT_SCHEMA)
         source={'metadata':{'sent_date':'2025-01-01T12:00:00+01:00','sender':'','subject':'Synthetic'},'body':'body'}
         self.assertEqual(chat.call_args_list[0].args[0][1]['content'],
             '{"metadata":{"sent_date":"2025-01-01T12:00:00+01:00","sender":"","subject":"Synthetic"},"body":"body"}')
@@ -81,7 +82,7 @@ class ContentTests(unittest.TestCase):
         with patch.object(classifier_helpers,'chat_completion',return_value={'destination':'archive'}) as chat:
             self.assertEqual(classify(mail,'Syntetyczne podsumowanie.'),'archive')
         self.assertEqual(chat.call_count,1)
-        self.assertEqual(chat.call_args.args[0][0]['content'],disposition_prompt())
+        self.assertEqual(chat.call_args.args[0][0]['content'],classify_prompt())
 
 
     def test_http_requests_serialize_exact_source_without_recipient(self):

@@ -22,19 +22,20 @@ class PackagingTests(unittest.TestCase):
                                     capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             with zipfile.ZipFile(archive) as z:
-                for prompt in ('classifier/destination.md', 'classifier/summary.md',
-                               'classifier/extraction.md', 'classifier/duplicate.md', 'classifier/completion.md',
-                               'classifier/destination.json', 'classifier/summary.json',
-                               'classifier/extraction.json', 'classifier/duplicate.json', 'classifier/completion.json'):
+                for prompt in ('classifier/summarize_prompt.md', 'classifier/classify_prompt.md',
+                               'classifier/extract_events_prompt.md', 'classifier/is_duplicate_prompt.md',
+                               'classifier/complete_event_prompt.md',
+                               'classifier/summarize_output_schema.json', 'classifier/classify_output_schema.json',
+                               'classifier/extract_events_output_schema.json', 'classifier/is_duplicate_output_schema.json',
+                               'classifier/complete_event_output_schema.json'):
                     self.assertIn('local_agentic_triage/' + prompt, z.namelist())
                 self.assertFalse(any('__pycache__' in n for n in z.namelist()))
             result = subprocess.run([sys.executable, str(archive), '--help'], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             code = ("import sys; sys.path.insert(0,sys.argv[1]); "
-                    "from local_agentic_triage.classifier.helpers import CLASSIFICATION_SCHEMA,SUMMARY_SCHEMA; "
-                    "from local_agentic_triage.classifier.events import _EXTRACTION_SCHEMA,_DUPLICATE_SCHEMA,_COMPLETION_SCHEMA; "
+                    "from local_agentic_triage.classifier.resources import (SUMMARIZE_OUTPUT_SCHEMA,CLASSIFY_OUTPUT_SCHEMA,EXTRACT_EVENTS_OUTPUT_SCHEMA,IS_DUPLICATE_OUTPUT_SCHEMA,COMPLETE_EVENT_OUTPUT_SCHEMA); "
                     "assert all(s['json_schema']['strict'] for s in "
-                    "(CLASSIFICATION_SCHEMA,SUMMARY_SCHEMA,_EXTRACTION_SCHEMA,_DUPLICATE_SCHEMA,_COMPLETION_SCHEMA))")
+                    "(SUMMARIZE_OUTPUT_SCHEMA,CLASSIFY_OUTPUT_SCHEMA,EXTRACT_EVENTS_OUTPUT_SCHEMA,IS_DUPLICATE_OUTPUT_SCHEMA,COMPLETE_EVENT_OUTPUT_SCHEMA))")
             result = subprocess.run([sys.executable, '-I', '-c', code, str(archive)],
                                     capture_output=True, text=True, timeout=10)
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -173,16 +174,16 @@ class PackagingTests(unittest.TestCase):
         import hashlib
         from importlib.resources import files
         expected = {
-            'classifier/destination.json': '02cdef55c33c3cad5a51455b47ba4068242c5c81547d9a609fc871ca22d037c6',
-            'classifier/destination.md': '387648d89455521af54121888be33c9ea4e6df2a69da181168105274f670db4a',
-            'classifier/summary.json': '7778048986365c1f57273fbef05f9ff773310bac8ccc8f371357c5d8c392b06f',
-            'classifier/summary.md': 'a16a8dfffbcc0852b41a9e3b00b2447622128568a2e13cc51cc1fd5030ceb233',
-            'classifier/completion.json': '04110de9593868434971c4490d7b877202e055b5bbd25783afe7d9b5f0a4f85f',
-            'classifier/completion.md': '7ce3e967ea94f5d5d21554138b922fcdec8e4ecc2b9b1e28de04ab42d5960ca8',
-            'classifier/duplicate.json': 'bd7f0ec4d72545eab7d4af81f7e548bcff334475b6fe9331645c85c9313173c3',
-            'classifier/duplicate.md': '20e7d321d2c0c9c12122df351ecac86da26338d41dab3ee1266fe6bf3d0966be',
-            'classifier/extraction.json': 'a9160a341ed35135f0331dcc902364e1de8324e2a1a5658128505c9c31c07644',
-            'classifier/extraction.md': 'b0aee6d79c104eed3559d52af1145cafbb0f6b9b5a4ea0e21ccaee31b7d506d3'}
+            'classifier/classify_output_schema.json': '02cdef55c33c3cad5a51455b47ba4068242c5c81547d9a609fc871ca22d037c6',
+            'classifier/classify_prompt.md': '387648d89455521af54121888be33c9ea4e6df2a69da181168105274f670db4a',
+            'classifier/summarize_output_schema.json': '7778048986365c1f57273fbef05f9ff773310bac8ccc8f371357c5d8c392b06f',
+            'classifier/summarize_prompt.md': 'a16a8dfffbcc0852b41a9e3b00b2447622128568a2e13cc51cc1fd5030ceb233',
+            'classifier/complete_event_output_schema.json': '04110de9593868434971c4490d7b877202e055b5bbd25783afe7d9b5f0a4f85f',
+            'classifier/complete_event_prompt.md': '7ce3e967ea94f5d5d21554138b922fcdec8e4ecc2b9b1e28de04ab42d5960ca8',
+            'classifier/is_duplicate_output_schema.json': 'bd7f0ec4d72545eab7d4af81f7e548bcff334475b6fe9331645c85c9313173c3',
+            'classifier/is_duplicate_prompt.md': '20e7d321d2c0c9c12122df351ecac86da26338d41dab3ee1266fe6bf3d0966be',
+            'classifier/extract_events_output_schema.json': 'a9160a341ed35135f0331dcc902364e1de8324e2a1a5658128505c9c31c07644',
+            'classifier/extract_events_prompt.md': 'b0aee6d79c104eed3559d52af1145cafbb0f6b9b5a4ea0e21ccaee31b7d506d3'}
         for name, digest in expected.items():
             with self.subTest(resource=name):
                 self.assertEqual(

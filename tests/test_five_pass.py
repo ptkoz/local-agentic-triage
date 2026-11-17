@@ -3,7 +3,8 @@ import unittest
 from unittest.mock import patch, Mock
 from local_agentic_triage.classifier import disposition as core
 from local_agentic_triage.classifier import helpers as classifier_helpers
-from local_agentic_triage.classifier.helpers import disposition_prompt
+from local_agentic_triage.classifier import resources
+from local_agentic_triage.classifier.resources import classify_prompt
 from local_agentic_triage.mail.mime import parse
 from local_agentic_triage.classifier.input import fit_to_context
 
@@ -14,7 +15,7 @@ class FivePassTests(unittest.TestCase):
             self.assertEqual(core.classify(mail,'Synthetic summary'),'leave')
         messages,schema=chat.call_args.args
         self.assertEqual(set(schema['json_schema']['schema']['properties']),{'destination'})
-        self.assertEqual(messages[0]['content'],disposition_prompt())
+        self.assertEqual(messages[0]['content'],classify_prompt())
         self.assertEqual(messages[1]['content'],
             '{"summary": "Synthetic summary", "mail": {"metadata": {"sent_date": "", "sender": "synthetic@example.invalid", '
             '"subject": ""}, "body": "body"}}')
@@ -51,8 +52,9 @@ class FivePassTests(unittest.TestCase):
                 self.assertEqual(set(schema['required']),set(schema['properties']))
                 for child in schema['properties'].values(): check(child)
             if schema.get('type')=='array': check(schema['items'])
-        for schema in (classifier_helpers.CLASSIFICATION_SCHEMA,classifier_helpers.SUMMARY_SCHEMA,
-                       events._EXTRACTION_SCHEMA,events._DUPLICATE_SCHEMA,events._COMPLETION_SCHEMA):
+        for schema in (resources.SUMMARIZE_OUTPUT_SCHEMA, resources.CLASSIFY_OUTPUT_SCHEMA,
+                       resources.EXTRACT_EVENTS_OUTPUT_SCHEMA, resources.IS_DUPLICATE_OUTPUT_SCHEMA,
+                       resources.COMPLETE_EVENT_OUTPUT_SCHEMA):
             self.assertIs(schema['json_schema']['strict'],True)
             check(schema['json_schema']['schema'])
 
