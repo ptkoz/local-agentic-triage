@@ -1,159 +1,85 @@
 import subprocess
-import tempfile
 import unittest
-from datetime import datetime
-from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
-from zoneinfo import ZoneInfo
+from unittest.mock import Mock, patch
 
 from helpers import make_config
-from local_agentic_triage.reporting.report import header, record_message, send
-from local_agentic_triage.reporting.store import Store
-
-UTC=ZoneInfo('UTC')
+from local_agentic_triage.reporting.report import deliver, render_notification
 
 
-class ReportTests(unittest.TestCase):
-    def test_summary_and_one_record_format(self):
-        start=datetime(2026,11,8,16,44,tzinfo=UTC); end=datetime(2026,11,9,17,0,tzinfo=UTC)
-        self.assertEqual(header('2',9),'<@2>, powyżej znajduje się informacja o **9 wiadomościach** przeniesionych do Archiwum od poprzedniego podsumowania.')
-        self.assertEqual(header('2',1),'<@2>, powyżej znajduje się informacja o **1 wiadomości** przeniesionej do Archiwum od poprzedniego podsumowania.')
-        row={'source_key':'key','created_at':'2099-01-01T00:00:00+00:00','sent_at':'2026-10-31T00:27:00+00:00','sender':'Example Sender <sender@example.invalid>','summary':'Nadawca przesłał syntetyczne powiadomienie.'}
-        self.assertEqual(record_message(row,1900),'**Archiwum**: Od **Example Sender <sender@example.invalid>** z dnia 31 paź, 01:27\n> Nadawca przesłał syntetyczne powiadomienie.')
-        with self.assertRaises(ValueError): record_message(row|{'summary':'x'*2000},1900)
-        self.assertEqual(record_message(row|{'summary':'*Ważne* (4 listopada)'},1900),'**Archiwum**: Od **Example Sender <sender@example.invalid>** z dnia 31 paź, 01:27\n> *Ważne* (4 listopada)')
+class RenderNotificationTests(unittest.TestCase):
+    def _row(self, **kw):
+        base = {'sender': 'Example <ex@example.invalid>', 'summary': 'Synthetic summary.',
+                'sent_at': '2026-10-31T00:27:00+00:00'}
+        return {**base, **kw}
 
-    def test_delivery_requires_explicit_runner_before_state_access(self):
-        store=Mock()
-        with self.assertRaisesRegex(RuntimeError,'report_delivery_disabled'):
-            send(store,make_config(),datetime(2026,11,10,17,0,tzinfo=UTC))
-        store.report_window.assert_not_called()
+    def test_neutral_format_with_date(self):
+        text = render_notification(self._row(), 'archive', 1900)
+        self.assertEqual(text, 'Od **Example <ex@example.invalid>** z dnia 31 paź, 01:27\n> Synthetic summary.')
 
-    def test_legacy_missing_date_is_reported_without_fabricated_timestamp(self):
-        with tempfile.TemporaryDirectory() as d:
-            store=Store(Path(d)/'db')
-            with store.db:
-                store.db.execute('INSERT INTO reports (source_key,sender,sent_at,summary,created_at,ready_at) VALUES (?,?,?,?,?,?)',('legacy','a@example.com',None,'Summary','2026-11-09T18:13:00+00:00','2026-11-09T18:13:00+00:00'))
-            runner=Mock(return_value=Mock(returncode=0))
-            send(store,make_config(),datetime(2026,11,10,17,0,tzinfo=UTC),runner=runner)
-            self.assertEqual(runner.call_args_list[0].kwargs['input'],'**Archiwum**: Od **a@example.com** — data wiadomości niedostępna\n> Summary')
-            self.assertIsNotNone(store.db.execute('SELECT reported_at FROM reports WHERE source_key=?',('legacy',)).fetchone()[0]); store.close()
+    def test_destination_accepted_and_neutral_for_leave(self):
+        """leave gets same neutral format as archive; destination param accepted."""
+        archive_text = render_notification(self._row(), 'archive', 1900)
+        leave_text = render_notification(self._row(), 'leave', 1900)
+        self.assertEqual(archive_text, leave_text)
+        self.assertNotIn('**Archiwum**', archive_text)
+        self.assertNotIn('**Archiwum**', leave_text)
 
-    def test_rows_then_summary_and_per_row_ack(self):
-        store=Mock(); at=datetime(2026,11,10,17,0,tzinfo=UTC)
-        store.report_window.return_value=('2026-11-09T17:00:00+00:00','2026-11-10T17:00:00+00:00')
-        store.timestamp.return_value='2026-11-10T17:00:01+00:00'
-        store.reported_since_summary.return_value=9
-        store.pending.return_value=[
-            {'source_key':'a','created_at':'2099-01-01T00:00:00+00:00','sent_at':'2026-11-09T18:13:00+00:00','sender':'a@example.com','summary':'Pierwsze.'},
-            {'source_key':'b','created_at':'2099-01-01T00:00:00+00:00','sent_at':'2026-11-09T19:14:00+00:00','sender':'b@example.com','summary':'Drugie.'},
-        ]
-        lock_state={'held':False}
-        lock=Mock(return_value=MagicMock())
-        lock.return_value.__enter__.side_effect=lambda: lock_state.update(held=True)
-        lock.return_value.__exit__.side_effect=lambda *args: lock_state.update(held=False)
-        def delivery(*args,**kwargs):
-            self.assertTrue(lock_state['held'])
-            return subprocess.CompletedProcess([],0,'','')
-        runner=Mock(side_effect=delivery)
-        with patch('local_agentic_triage.reporting.report.Lock',lock):
-            send(store,make_config(),at,runner=runner)
-        lock.assert_called_once_with(Path(make_config().delivery_lock),blocking=True)
-        self.assertEqual(runner.call_count,3)
-        self.assertIn('**9 wiadomościach**',runner.call_args_list[2].kwargs['input'])
-        self.assertEqual(runner.call_args_list[0].kwargs['input'],'**Archiwum**: Od **a@example.com** z dnia 9 lis, 19:13\n> Pierwsze.')
-        self.assertEqual(runner.call_args_list[1].kwargs['input'],'**Archiwum**: Od **b@example.com** z dnia 9 lis, 20:14\n> Drugie.')
-        self.assertEqual([call.args for call in store.reported.call_args_list],[(['a'],),(['b'],)])
-        store.pending.assert_called_once_with()
-        store.complete_report_window.assert_called_once_with(
-            '2026-11-10T17:00:00+00:00',summary_cutoff='2026-11-10T17:00:01+00:00')
+    def test_missing_date_renders_fallback(self):
+        text = render_notification(self._row(sent_at=None), 'archive', 1900)
+        self.assertIn('data wiadomości niedostępna', text)
+        self.assertIn('Synthetic summary.', text)
 
-    def test_old_backlog_delivered_in_run_is_counted_since_previous_summary(self):
-        with tempfile.TemporaryDirectory() as d:
-            store=Store(Path(d)/'db')
-            start='2026-11-01T07:00:00+00:00'; end='2026-11-01T17:00:00+00:00'
-            store.complete_report_window(start,summary_cutoff='2026-11-01T16:00:00+00:00')
-            for key in ('a','b'):
-                store.prepare(key,f'{key}@example.com',f'{key} summary',sent_at=start)
-                store.db.execute('UPDATE reports SET ready_at=? WHERE source_key=?',('2026-10-01T00:00:00+00:00',key))
-            store.db.commit()
-            runner=Mock(return_value=subprocess.CompletedProcess([],0,'',''))
-            with patch('local_agentic_triage.reporting.store.now',side_effect=[
-                    '2026-11-01T17:00:01+00:00','2026-11-01T17:00:02+00:00','2026-11-01T17:00:03+00:00']):
-                send(store,make_config(),datetime.fromisoformat(end),runner=runner)
-            self.assertIn('**2 wiadomościach**',runner.call_args_list[-1].kwargs['input'])
-            store.close()
+    def test_oversize_raises(self):
+        with self.assertRaises(ValueError):
+            render_notification(self._row(summary='x' * 2000), 'archive', 1900)
 
-    def test_partial_failure_acks_only_sent_record_and_retry_uses_remaining(self):
-        with tempfile.TemporaryDirectory() as d:
-            store=Store(Path(d)/'db')
-            for key in ('a','b'):
-                store.prepare(key,f'{key}@example.com',f'{key} summary',sent_at='2026-11-09T18:13:00+00:00'); store.ready(key)
-                store.db.execute('UPDATE reports SET created_at=?,ready_at=? WHERE source_key=?',('2026-11-09T18:13:00+00:00','2026-11-09T18:13:00+00:00',key))
-            store.db.commit(); at=datetime(2026,11,10,17,0,tzinfo=UTC)
-            first=Mock(side_effect=[subprocess.CompletedProcess([],0,'',''),subprocess.CompletedProcess([],1,'','PRIVATE')])
-            with self.assertRaises(RuntimeError): send(store,make_config(),at,runner=first)
-            self.assertEqual([row['source_key'] for row in store.pending()],['b'])
-            retry=Mock(return_value=subprocess.CompletedProcess([],0,'',''))
-            send(store,make_config(),datetime(2026,11,11,17,0,tzinfo=UTC),runner=retry)
-            self.assertEqual(retry.call_count,2)
-            self.assertIn('b summary',retry.call_args_list[0].kwargs['input'])
-            self.assertNotIn('a summary',retry.call_args_list[0].kwargs['input'])
-            self.assertEqual(store.pending(),[])
-            store.close()
+    def test_invalid_limit_raises(self):
+        with self.assertRaises(ValueError):
+            render_notification(self._row(), 'archive', 50)
+        with self.assertRaises(ValueError):
+            render_notification(self._row(), 'archive', 2001)
 
-    def test_summary_failure_does_not_advance_cutoff_and_retry_counts_later_delivery(self):
-        with tempfile.TemporaryDirectory() as d:
-            store=Store(Path(d)/'db')
-            start='2026-11-01T07:00:00+00:00'; end='2026-11-01T17:00:00+00:00'
-            store.complete_report_window(start,summary_cutoff='2026-11-01T16:00:00+00:00')
-            for key in ('immediate','pending'):
-                store.prepare(key,'sender',key,sent_at=start)
-                store.db.execute('UPDATE reports SET ready_at=? WHERE source_key=?',(end,key))
-            store.db.commit(); store.reported(['immediate'],at='2026-11-01T16:30:00+00:00')
-            first=Mock(side_effect=[Mock(returncode=0),Mock(returncode=1)])
-            with patch('local_agentic_triage.reporting.store.now',side_effect=[
-                    '2026-11-01T17:01:00+00:00','2026-11-01T17:01:01+00:00']):
-                with self.assertRaises(RuntimeError): send(store,make_config(),datetime.fromisoformat(end),runner=first)
-            self.assertEqual(store.prepared('pending')['reported_at'],'2026-11-01T17:01:00+00:00')
-            self.assertEqual(store.last_summary_cutoff(),'2026-11-01T16:00:00+00:00')
-            store.prepare('later','sender','later',sent_at=start)
-            store.db.execute('UPDATE reports SET ready_at=? WHERE source_key=?',('2026-11-01T18:00:00+00:00','later'))
-            store.db.commit(); store.reported(['later'],at='2026-11-01T18:01:00+00:00')
-            retry=Mock(return_value=Mock(returncode=0))
-            with patch('local_agentic_triage.reporting.store.now',return_value='2026-11-02T17:00:00+00:00'):
-                send(store,make_config(),datetime(2026,11,2,17,tzinfo=UTC),runner=retry)
-            retry.assert_called_once()
-            self.assertIn('**3 wiadomościach**',retry.call_args.kwargs['input'])
-            self.assertIn('od poprzedniego podsumowania',retry.call_args.kwargs['input'])
-            self.assertNotIn('między',retry.call_args.kwargs['input'])
-            self.assertEqual(store.pending(),[])
-            self.assertIsNone(store.current_report_window()); store.close()
+    def test_empty_summary_raises(self):
+        with self.assertRaises(ValueError):
+            render_notification(self._row(summary=''), 'archive', 1900)
 
-    def test_empty_report_summary_without_mention_advances_boundary(self):
-        with tempfile.TemporaryDirectory() as d:
-            store=Store(Path(d)/'db'); runner=Mock(return_value=subprocess.CompletedProcess([],0,'',''))
-            with patch('local_agentic_triage.reporting.store.now',return_value='2026-11-10T17:00:01+00:00'):
-                send(store,make_config(),datetime(2026,11,10,17,0,tzinfo=UTC),runner=runner)
-            self.assertEqual(runner.call_args.kwargs['input'],'Od poprzedniego podsumowania nie przeniesiono żadnych wiadomości do Archiwum.')
-            self.assertNotIn('<@2>',runner.call_args.kwargs['input'])
-            store.close()
+    def test_none_summary_raises(self):
+        with self.assertRaises(ValueError):
+            render_notification(self._row(summary=None), 'archive', 1900)
 
-    def test_subprocess_errors_are_safe_and_returncodes_bounded(self):
-        store=Mock()
-        store.report_window.return_value=('2026-11-09T17:00:00+00:00','2026-11-10T17:00:00+00:00')
-        store.timestamp.return_value='2026-11-10T17:00:01+00:00'
-        store.reported_since_summary.return_value=1
-        store.pending.return_value=[{'source_key':'private-key','created_at':'2099-01-01T00:00:00+00:00','sent_at':'2026-11-09T18:13:00+00:00','sender':'secret@example.invalid','summary':'private summary'}]
-        at=datetime(2026,11,10,17,0,tzinfo=UTC)
-        runner=Mock(return_value=subprocess.CompletedProcess([],1,'PRIVATE','PRIVATE'))
-        with self.assertLogs('local_agentic_triage',level='ERROR') as logs:
-            with self.assertRaises(RuntimeError): send(store,make_config(),at,runner=runner)
-        output='\n'.join(logs.output)
-        self.assertIn('error=report_command_failed returncode=1',output)
-        for private in ('private-key','secret@example.invalid','private summary','PRIVATE'):
-            self.assertNotIn(private,output)
-        huge=2**80; runner=Mock(return_value=subprocess.CompletedProcess([],huge,'PRIVATE','PRIVATE'))
-        with self.assertLogs('local_agentic_triage',level='ERROR') as logs:
-            with self.assertRaises(RuntimeError): send(store,make_config(),at,runner=runner)
-        self.assertNotIn(str(huge),'\n'.join(logs.output))
+    def test_special_summary_chars_pass_through(self):
+        row = self._row(summary='*Ważne* (4 listopada)')
+        text = render_notification(row, 'archive', 1900)
+        self.assertIn('*Ważne* (4 listopada)', text)
+
+
+class DeliverTests(unittest.TestCase):
+    def test_calls_hermes_send_with_text(self):
+        runner = Mock(return_value=Mock(returncode=0))
+        deliver(runner, make_config(), 'hello world')
+        runner.assert_called_once()
+        call = runner.call_args
+        self.assertEqual(call.args[0], [make_config().hermes, 'send', '--to', make_config().channel])
+        self.assertEqual(call.kwargs['input'], 'hello world')
+        self.assertFalse(call.kwargs['shell'])
+
+    def test_none_runner_raises(self):
+        with self.assertRaises(RuntimeError):
+            deliver(None, make_config(), 'text')
+
+    def test_nonzero_returncode_raises_and_logs_safe(self):
+        huge = 2 ** 80
+        runner = Mock(return_value=subprocess.CompletedProcess([], huge, 'PRIVATE', 'PRIVATE'))
+        with self.assertLogs('local_agentic_triage', level='ERROR') as logs:
+            with self.assertRaises(Exception):
+                deliver(runner, make_config(), 'text')
+        output = '\n'.join(logs.output)
+        self.assertNotIn(str(huge), output)
+        self.assertNotIn('PRIVATE', output)
+
+    def test_subprocess_exception_logs_safe_code(self):
+        runner = Mock(side_effect=OSError('PRIVATE connection error'))
+        with self.assertLogs('local_agentic_triage', level='ERROR') as logs:
+            with self.assertRaises(OSError):
+                deliver(runner, make_config(), 'text')
+        self.assertNotIn('PRIVATE', '\n'.join(logs.output))

@@ -6,7 +6,7 @@
 - `events` owns structural extraction, per-event duplicate checking, full event
   completion, final creation validation, and the deterministic Calendar adapter.
 - `mail` owns Himalaya, MIME parsing, and poll orchestration.
-- `reporting` owns SQLite state, report rendering, and delivery.
+- `reporting` owns per-mail notification rendering and Discord delivery.
 - Future SMS and log sources remain separate explicit modules.
 - The project does not need a plugin or dependency-injection framework;
   constructors and functions accept small fakes in tests.
@@ -71,14 +71,14 @@ remain eligible for creation.
 
 1. **Summary generation.** The first request receives bounded mail JSON and
    returns one factual Polish summary regardless of input language. Structural
-   summary validation remains fatal and retryable because archive reporting may
-   depend on this result.
+   summary validation remains fatal and retryable because every mail must be
+   reported before its disposition is applied.
 
 2. **Destination classification.** The second request receives separate
    `summary` and unchanged bounded `mail` fields and returns only `leave` or
-   `archive`. Leave discards the generated summary from the final disposition;
-   archive retains it. Structural destination validation remains fatal and
-   retryable because disposition depends on this result.
+   `archive`. The generated summary is retained for both destinations. Structural
+   destination validation remains fatal and retryable because notification and
+   disposition depend on this result.
 
 3. **Event extraction.** The third request independently receives the same
    bounded mail JSON and returns an `events` array. Every event object has the
@@ -212,103 +212,35 @@ threshold. It also lets the duplicate model see the original sparse extraction
 and the completion model reason over every field before deterministic code
 decides whether the event is safe and complete enough to create.
 
-For leave, event processing is followed, whether successful or not, by
-`himalaya imap store -m <inbox> --flag \Flagged -- UID`, without changing Seen
-or writing SQLite. The standard system flag makes explicit leave decisions visible
-in mail clients. Existing HermesLeave keywords are neither migrated nor removed
-and do not count as processed: those Inbox messages are candidates again unless
-they independently already have `\Flagged`.
+Before optional event processing, deterministic code renders one neutral Discord
+notification from the destination, sender, message date, and mandatory summary.
+The renderer accepts the destination so later wording can distinguish `leave`
+without changing pipeline orchestration; the current text is identical for both
+destinations. The Date header or IMAP INTERNALDATE fallback is converted to
+Europe/Warsaw. Missing dates use an explicit unavailable-date label. Sender and
+summary are emitted exactly as model/mail data. The complete message must fit
+`discord_limit`; it is never split or truncated.
 
-For archive, deterministic code first renders and validates the eventual single
-Discord report row against `discord_limit`. Oversized rows fail before events,
-SQLite, Seen, or MOVE and are never split or truncated. Event processing is
-then followed, whether successful or not, by INSERT OR IGNORE of an immutable prepared report row with
-ready_at NULL. Only then does Himalaya verify UID presence, add raw `\Seen` by
-UID with `imap store --flag \Seen -- UID`, and move from the configured inbox to
-configured archive. Success sets ready_at, then immediately sends that row through
-Hermes when a delivery runner is supplied. Successful delivery sets reported_at
-to the actual delivery time. Delivery failure logs only safe metadata and leaves
-the row ready/unreported without failing the poll; scheduled reporting retries it.
-The production CLI explicitly injects subprocess.run; direct poll() calls default
-to no delivery, and tests can inject a synthetic runner. A prepared row found
-on retry preserves the original sender/summary, does not fetch the body, does
-not classify again, and does not rerun events. It retries IMAP finalization, then
-marks ready and attempts immediate delivery.
-A ready row is already finalized. SQLite uses WAL, a busy timeout and parameter
-binding. The `reports` table stores source_key, sender, the normalized message
-timestamp (`sent_at`), summary, created_at, ready_at and reported_at; the single-row `report_state` table preserves one
-in-progress scheduled run window across partial delivery failures. Separate
-`summary_meta` state stores the cutoff of the last successfully delivered mention.
+The production CLI injects `subprocess.run` and sends the notification through
+Hermes. A direct `poll()` call without a runner fails closed before any disposition.
+A transport exception or nonzero exit status is fatal and leaves the mail unchanged.
+Only a successful send authorizes the selected IMAP operation:
 
-There is no transaction spanning IMAP and SQLite. At the beginning and end of
-every poll, reconciliation enumerates prepared rows with ready_at NULL. Only
-keys for the configured account/inbox/UIDVALIDITY are considered. An exact UID search
-without the `\Flagged` filter marks an absent UID ready: MOVE succeeded or the
-message was otherwise removed. Present UIDs remain for normal prepared retry.
-Search/validity failures leave rows unready and fail the poll. Reconciliation
-never reruns classification or events; after marking an absent row ready it
-attempts the same immediate delivery. It adds no queue or schema columns.
-If a Calendar call succeeds before a crash preceding prepare, the next call
-relies on configured-calendar semantic search to avoid duplication. A Seen update can succeed
-before a failed MOVE, and is safely repeated on retry.
+- `leave` sets the standard `\Flagged` system flag and leaves the mail in Inbox;
+- `archive` sets `\Seen`, rechecks identity, and moves the mail to Archive.
 
-## Reports
-
-Ready, unreported rows sort by created_at then source_key. Scheduled reporting
-first sends every pending row, including backlog older than the scheduled run
-window, acknowledging each successful delivery immediately with its actual
-delivery time. There is no introduction. After all pending rows succeed, it
-captures a current summary cutoff and sends exactly one final summary. The count
-uses delivery acknowledgements (`reported_at`), not archive readiness: it includes
-rows in `(previous successful summary cutoff, current cutoff]`. When no successful
-summary cutoff exists, the first summary includes every acknowledged row through
-the current cutoff. Undelivered rows are excluded. For example:
-`<@USER_ID>, powyżej znajduje się informacja o **9 wiadomościach** przeniesionych do Archiwum od poprzedniego podsumowania.`
-The singular uses `1 wiadomości` and `przeniesionej`. A zero count does not mention
-the user and renders `Od poprzedniego podsumowania nie przeniesiono żadnych
-wiadomości do Archiwum.`
-
-The scheduled run window remains independently frozen in `report_state`, and
-`report_meta.last_end_at` remains its completed boundary. The actual successful
-mention cutoff is stored separately in `summary_meta.last_cutoff_at`; it is never
-derived from `MAX(reported_at)`. Existing installations seed it from the last
-completed `report_meta.last_end_at` boundary during migration. Existing frozen
-windows are preserved across upgrades; legacy `has_rows` state remains compatible
-but is no longer used for delivery or counting decisions.
-
-Each row is one Discord message in the form `**Archiwum**: Od **…** z dnia …`
-followed by the summary as a Discord quote.
-The displayed date comes from the message's valid Date header or, when that is
-missing, malformed or lacks a timezone, from its IMAP INTERNALDATE. Both are
-captured before disposition and converted to Europe/Warsaw; processing time is
-never substituted. Rows lacking a retained Date or INTERNALDATE render `data
-wiadomości niedostępna` and do not block the rest of the report. Each row is
-marked reported immediately after its own send succeeds. A failed row send leaves
-that row and all following rows pending and prevents the final summary. A failed
-summary does not advance the summary cutoff; its retry counts every report delivered
-since the previous successful mention, including deliveries made after the failure.
-Only successful summary delivery atomically stores the current cutoff, advances
-`report_meta.last_end_at`, and clears the scheduled window. A record that
-cannot fit the configured Discord limit fails before any delivery; records are
-not split or truncated. Sender and summary are emitted exactly as stored, without
-sanitization. There is no LLM call for report delivery.
-
-Discord delivery is at least once: a crash after sending a record but before
-marking it can cause that record to be duplicated on retry. There is no remote
-idempotency token in the required send command. No success is recorded before
-the subprocess exits successfully. Immediate and scheduled delivery hold the same
-blocking lock. New configurations set it explicitly; configurations from before
-this setting existed derive it by appending `.delivery` to `report_lock`. The
-scheduled run holds it from pending-row selection through summary persistence, so
-an immediate report cannot appear between the count cutoff and mention. An
-immediate sender rechecks `reported_at` after acquiring the lock, because a waiting
-scheduled run may already have delivered and acknowledged it.
+There is no SQLite database, report queue, scheduled reporter, reconciliation, or
+durable delivery acknowledgement. A process crash or disposition failure after a
+successful Discord send leaves the source mail eligible for a complete later run,
+which can send a duplicate notification. This at-least-once window is accepted in
+exchange for the single stateless flow. A Calendar write completed before such a
+retry relies on the existing fresh Calendar lookup and duplicate decision.
 
 ## eduVULCAN handoff
 
-Right after `validate_disposition(classifier(mail))`, the poll compares the address
-extracted from `mail.sender` case-insensitively to `noreply@vulcan.net.pl` and, on
-equality, calls `mail.vulcan.forward`. It runs the fixed
+After the mandatory notification has been rendered and validated, the poll compares
+the address extracted from `mail.sender` case-insensitively to
+`noreply@vulcan.net.pl` and, on equality, calls `mail.vulcan.forward`. It runs the fixed
 `~/.local/bin/agentic-vulcan-orchestrator --config <fixed-private-config>` launcher
 with the exact raw bytes on stdin (`shell=False`) without waiting for autonomous
 repair. It first writes the bytes to an anonymous private

@@ -53,6 +53,19 @@ def install(home, python):
     for path in (runtime, data, cache, logs, agents):
         directory(path)
     build(runtime / 'local-agentic-triage.pyz', python)
+    obsolete = (
+        agents / 'local.local-agentic-triage.report.plist',
+        logs / 'report.log',
+        data / 'triage.sqlite3',
+        data / 'triage.sqlite3-wal',
+        data / 'triage.sqlite3-shm',
+        data / 'triage.sqlite3.init.lock',
+        data / 'reports.sqlite3',
+        data / 'reports.sqlite3-wal',
+        data / 'reports.sqlite3-shm',
+    )
+    for path in obsolete:
+        path.unlink(missing_ok=True)
     config = data / 'config.toml'
     if not config.exists():
         escaped_home = json.dumps(str(home), ensure_ascii=False)[1:-1]
@@ -64,10 +77,9 @@ def install(home, python):
         info = plistlib.loads(template.read_bytes())
         info = render(info, replacements)
         atomic_write(agents / template.name, plistlib.dumps(info))
-    for name in ('poll.log', 'report.log'):
-        path = logs / name
-        path.touch(mode=0o600, exist_ok=True)
-        path.chmod(0o600)
+    path = logs / 'poll.log'
+    path.touch(mode=0o600, exist_ok=True)
+    path.chmod(0o600)
 
 
 if __name__ == '__main__':

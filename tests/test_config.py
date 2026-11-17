@@ -10,9 +10,8 @@ class ConfigTests(unittest.TestCase):
     def test_operational_values_are_required(self):
         with self.assertRaises(TypeError):
             Config()
-        required = ('account', 'inbox', 'archive', 'channel', 'discord_user_id',
-                    'calendar', 'himalaya', 'hermes', 'database', 'poll_lock',
-                    'report_lock')
+        required = ('account', 'inbox', 'archive', 'channel', 'calendar',
+                    'himalaya', 'hermes', 'poll_lock')
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'config.toml'
             for key in required:
@@ -22,16 +21,22 @@ class ConfigTests(unittest.TestCase):
                 with self.subTest(key=key), self.assertRaises(ValueError):
                     load(path)
 
-    def test_pre_delivery_lock_config_gets_compatible_default(self):
+    def test_legacy_keys_are_accepted_and_ignored(self):
+        """Old database, report_lock, delivery_lock, discord_user_id keys are silently ignored."""
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'config.toml'
-            old_config = '\n'.join(
-                line for line in config_text().splitlines()
-                if not line.startswith('delivery_lock =')
+            legacy = config_text() + (
+                'database = "/var/tmp/legacy.sqlite3"\n'
+                'report_lock = "/var/tmp/legacy-report.lock"\n'
+                'delivery_lock = "/var/tmp/legacy-delivery.lock"\n'
+                'discord_user_id = "9876543210"\n'
             )
-            path.write_text(old_config)
+            path.write_text(legacy)
             config = load(path)
-            self.assertEqual(config.delivery_lock, config.report_lock + '.delivery')
+            self.assertFalse(hasattr(config, 'database'))
+            self.assertFalse(hasattr(config, 'report_lock'))
+            self.assertFalse(hasattr(config, 'delivery_lock'))
+            self.assertFalse(hasattr(config, 'discord_user_id'))
 
     def test_loads_explicit_generic_configuration(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -40,7 +45,6 @@ class ConfigTests(unittest.TestCase):
             config = load(path)
             self.assertEqual(config.account, 'test-account')
             self.assertEqual(config.calendar, 'Test Calendar')
-            self.assertEqual(config.discord_user_id, '2')
             self.assertEqual(config.max_mail_bytes, 0)
 
     def test_rejects_unknown_placeholders_paths_and_discord_targets(self):
@@ -54,9 +58,7 @@ class ConfigTests(unittest.TestCase):
                 {'himalaya': '/opt/@HIMALAYA@'},
                 {'calendar': ''},
                 {'himalaya': 'relative/himalaya'},
-                {'database': '~/triage.sqlite3'},
                 {'channel': 'discord:not-an-id'},
-                {'discord_user_id': '0'},
             )
             for changes in invalid:
                 path.write_text(config_text(**changes))

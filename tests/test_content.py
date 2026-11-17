@@ -23,10 +23,18 @@ class ContentTests(unittest.TestCase):
         good={'destination':'archive','summary':'Potwierdzono zakup biletu.','events':[{'title':'Kino','start':'2026-12-01T18:00:00+01:00','end':None,'date_note':None}]}
         self.assertEqual(validate(good),good)
         self.assertEqual(validate(good|{'summary':'x '*100})['summary'],'x '*100)
-        self.assertEqual(validate(good|{'summary':''})['summary'],'')
-        for change in ({'extra':1},{'summary':None},{'destination':'leave'},{'events':[{'title':'X','start':'2026-99-99','end':None,'date_note':None}]}):
+        for change in ({'extra':1},{'summary':None},{'summary':''},{'events':[{'title':'X','start':'2026-99-99','end':None,'date_note':None}]}):
             with self.assertRaises(ValueError): validate(good|change)
-        self.assertEqual(validate({'destination':'leave','summary':None,'events':[]})['destination'],'leave')
+        self.assertEqual(validate({'destination':'leave','summary':'Wymagana odpowiedź.','events':[]})['destination'],'leave')
+
+    def test_summary_validation_rejects_empty_text_for_every_destination(self):
+        from local_agentic_triage.classifier.core import validate_summary, validate_disposition
+        for destination in ('archive','leave'):
+            with self.subTest(destination=destination):
+                with self.assertRaises(ValueError):
+                    validate_disposition({'destination':destination,'summary':''})
+        with self.assertRaises(ValueError):
+            validate_summary({'summary':''})
     def test_exact_prompt(self):
         self.assertEqual(hashlib.sha256(prompt().encode()).hexdigest(),'12a7044a41d3acc9b173ad69a71a55f3e8783399eaee291057460a1075aecf6c')
     def test_local_request_and_truncation(self):
@@ -50,7 +58,7 @@ class ContentTests(unittest.TestCase):
         mail=parse(b'Date: Wed, 01 Jan 2025 12:00:00 +0100\nSubject: Synthetic\n\nbody',100)
         with patch.object(core,'chat_completion',side_effect=[
                 {'summary':'Syntetyczne podsumowanie.'},{'destination':'leave'}]) as chat:
-            self.assertEqual(classify(mail),{'destination':'leave','summary':None})
+            self.assertEqual(classify(mail),{'destination':'leave','summary':'Syntetyczne podsumowanie.'})
         self.assertEqual(chat.call_count,2)
         self.assertIs(chat.call_args_list[0].args[1],core.SUMMARY_SCHEMA)
         self.assertIs(chat.call_args_list[1].args[1],core.CLASSIFICATION_SCHEMA)

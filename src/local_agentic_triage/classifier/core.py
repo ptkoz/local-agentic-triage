@@ -74,11 +74,8 @@ def timestamp(value):
 
 def validate(obj):
     if not isinstance(obj,dict) or set(obj)!={'destination','summary','events'}: raise ValueError('classification keys')
-    if obj['destination']=='leave':
-        if obj['summary'] is not None: raise ValueError('leave summary')
-    elif obj['destination']=='archive':
-        if not isinstance(obj['summary'],str): raise ValueError('archive summary')
-    else: raise ValueError('destination')
+    if obj['destination'] not in ('leave','archive'): raise ValueError('destination')
+    if not isinstance(obj['summary'],str) or not obj['summary']: raise ValueError('summary')
     if not isinstance(obj['events'],list): raise ValueError('events type')
     for e in obj['events']:
         if not isinstance(e,dict) or set(e)!={'title','start','end','date_note'}: raise ValueError('event keys')
@@ -138,18 +135,15 @@ def validate_destination(obj):
 def validate_summary(obj):
     if not isinstance(obj,dict) or set(obj)!={'summary'}:
         raise ValueError('classification keys')
-    if not isinstance(obj['summary'],str):
-        raise ValueError('archive summary')
+    if not isinstance(obj['summary'],str) or not obj['summary']:
+        raise ValueError('summary')
     return obj
 
 def validate_disposition(obj):
     if not isinstance(obj,dict) or set(obj)!={'destination','summary'}:
         raise ValueError('classification keys')
     validate_destination({'destination':obj['destination']})
-    if obj['destination']=='leave':
-        if obj['summary'] is not None: raise ValueError('leave summary')
-    else:
-        validate_summary({'summary':obj['summary']})
+    validate_summary({'summary':obj['summary']})
     return obj
 
 def classify(mail):
@@ -164,5 +158,5 @@ def classify(mail):
     ],CLASSIFICATION_SCHEMA))['destination']
     return {
         'destination':destination,
-        'summary':summary if destination=='archive' else None,
+        'summary':summary,
     }

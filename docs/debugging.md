@@ -7,12 +7,11 @@ Use this runbook when investigating production failures. Investigation is read-o
 Launchd writes application output to:
 
 - `~/Library/Logs/local-agentic-triage/poll.log`
-- `~/Library/Logs/local-agentic-triage/report.log`
 
-Follow both logs with:
+Follow the log with:
 
 ```sh
-tail -F ~/Library/Logs/local-agentic-triage/{poll,report}.log
+tail -F ~/Library/Logs/local-agentic-triage/poll.log
 ```
 
 A poll error such as:
@@ -69,11 +68,11 @@ the installed application or restart its LaunchAgents.
 
 - selects only the configured Inbox and validates its current `UIDVALIDITY`;
 - verifies that the UID still exists, reads that message without setting flags, bounds the model payload, and calls only the fixed loopback summary and destination passes;
-- does not open SQLite, acquire production locks, run Calendar/event decisions, set `\Flagged`/`Seen`, move mail, or send a report;
+- does not acquire the production poll lock, run Calendar/event decisions, set `\Flagged`/`Seen`, move mail, or send a notification;
 - logs only UID, UIDVALIDITY, stage, truncation field names, and a controlled error code;
 - returns 0 if classification currently succeeds and 1 if the replay fails.
 
-Do not use `mail poll` or `report send --deliver` for diagnosis. They have production side effects. Do not add temporary logging of private input or model output.
+Do not use `mail poll` for diagnosis. It has production side effects. Do not add temporary logging of private input or model output.
 
 A missing UID, a different mailbox, or `--uidvalidity` mismatch means the
 historical message cannot be replayed by that UID. The command rejects a
@@ -112,8 +111,8 @@ An event exception or invalid canonical event result produces one
 `mail_event_failed uid=... error=...` line, optionally with a bounded numeric
 `returncode`. This is optional-enrichment telemetry: it does not produce a
 second `mail_item_failed` line, make the poll fail, or prevent leave/archive.
-Summary, destination, read, report-row, and disposition errors remain fatal and
-retryable.
+Summary, destination, read, notification rendering/delivery, and disposition
+errors remain fatal and retryable.
 
 Older builds logged both decoder failures as `json_decode_error`. That legacy code alone is ambiguous: it proves strict JSON decoding failed but not which decoder failed. Use the read-only diagnostic command on the current build. If replay succeeds, report that the historical decoder location cannot be proven from legacy logs; do not infer it or claim a root cause from private output.
 
@@ -128,4 +127,4 @@ Report only:
 3. the corresponding code boundary;
 4. whether the result is confirmed by current replay or limited by legacy evidence.
 
-Do not repair, restart jobs, mutate mail, inspect Calendar, modify SQLite, or deliver reports unless the operator separately authorizes those actions.
+Do not repair, restart jobs, mutate mail, inspect Calendar, or deliver notifications unless the operator separately authorizes those actions.
