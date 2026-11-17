@@ -110,5 +110,4 @@ workflow.
 
 ## Scheduling
 
-One periodic poller runs the complete per-mail flow. There is no separate
-scheduled reporter or twice-daily notification job.
+One periodic poller runs the complete per-mail flow.

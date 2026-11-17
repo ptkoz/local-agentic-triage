@@ -143,7 +143,6 @@ def validate_disposition(obj):
     if not isinstance(obj,dict) or set(obj)!={'destination','summary'}:
         raise ValueError('classification keys')
     validate_destination({'destination':obj['destination']})
-    validate_summary({'summary':obj['summary']})
     return obj
 
 def classify(mail):

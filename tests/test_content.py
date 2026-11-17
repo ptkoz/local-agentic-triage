@@ -27,12 +27,13 @@ class ContentTests(unittest.TestCase):
             with self.assertRaises(ValueError): validate(good|change)
         self.assertEqual(validate({'destination':'leave','summary':'Wymagana odpowiedź.','events':[]})['destination'],'leave')
 
-    def test_summary_validation_rejects_empty_text_for_every_destination(self):
+    def test_summary_is_validated_only_at_summary_boundary(self):
         from local_agentic_triage.classifier.core import validate_summary, validate_disposition
-        for destination in ('archive','leave'):
-            with self.subTest(destination=destination):
-                with self.assertRaises(ValueError):
-                    validate_disposition({'destination':destination,'summary':''})
+        for summary in ('', None):
+            with self.subTest(summary=summary):
+                self.assertEqual(
+                    validate_disposition({'destination':'archive','summary':summary}),
+                    {'destination':'archive','summary':summary})
         with self.assertRaises(ValueError):
             validate_summary({'summary':''})
     def test_exact_prompt(self):
