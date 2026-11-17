@@ -4,8 +4,8 @@ import json as _json
 import re as _re
 
 from local_agentic_triage.classifier.helpers import (
-    CONTEXT_TOKENS as _CONTEXT_TOKENS,
-    MAX_TOKENS as _MAX_TOKENS,
+    LOCAL_MODEL_CONTEXT_TOKEN_LIMIT as _LOCAL_MODEL_CONTEXT_TOKEN_LIMIT,
+    LOCAL_MODEL_OUTPUT_TOKEN_LIMIT as _LOCAL_MODEL_OUTPUT_TOKEN_LIMIT,
     chat_completion as _chat_completion,
     response_schema as _response_schema,
 )
@@ -68,8 +68,8 @@ def _event_user_budget(system=None, schema=None):
     system = system or _prompt('duplicate')
     schema = schema or _DUPLICATE_SCHEMA
     reserved = (len(system.encode('utf-8')) + len(_json.dumps(schema).encode('utf-8'))
-                + _EVENT_TEMPLATE_OVERHEAD_BYTES + _MAX_TOKENS)
-    budget = _CONTEXT_TOKENS - reserved
+                + _EVENT_TEMPLATE_OVERHEAD_BYTES + _LOCAL_MODEL_OUTPUT_TOKEN_LIMIT)
+    budget = _LOCAL_MODEL_CONTEXT_TOKEN_LIMIT - reserved
     if budget < 1:
         raise RuntimeError('event_payload_budget')
     return budget

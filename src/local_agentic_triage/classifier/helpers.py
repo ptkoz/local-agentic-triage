@@ -6,9 +6,12 @@ from local_agentic_triage.common.json import strict_json
 
 ENDPOINT='http://127.0.0.1:12434/engines/v1/chat/completions'
 MODEL='docker.io/ai/ministral3-mail-8b:16k'
-CONTEXT_TOKENS=16384
-MAX_TOKENS=2048
-TIMEOUT=300
+# Total model context window shared by the request and generated response.
+LOCAL_MODEL_CONTEXT_TOKEN_LIMIT=16384
+# Maximum number of tokens the model may generate in one response.
+LOCAL_MODEL_OUTPUT_TOKEN_LIMIT=2048
+# Maximum duration of one request to the loopback model endpoint.
+LOCAL_MODEL_REQUEST_TIMEOUT_SECONDS=300
 
 
 def response_schema(package,name):
@@ -36,11 +39,11 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def chat_completion(messages,response_format):
-    data={'model':MODEL,'temperature':0,'response_format':response_format,'max_tokens':MAX_TOKENS,'messages':messages}
+    data={'model':MODEL,'temperature':0,'response_format':response_format,'max_tokens':LOCAL_MODEL_OUTPUT_TOKEN_LIMIT,'messages':messages}
     request=urllib.request.Request(ENDPOINT,data=json.dumps(data).encode(),headers={'Content-Type':'application/json'})
     # Disable environment proxies; only this fixed loopback endpoint is permitted.
     opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect())
-    with opener.open(request,timeout=TIMEOUT) as response:
+    with opener.open(request,timeout=LOCAL_MODEL_REQUEST_TIMEOUT_SECONDS) as response:
         raw=response.read()
     try:
         envelope=strict_json(raw.decode('utf-8') if isinstance(raw,bytes) else raw)

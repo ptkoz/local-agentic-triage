@@ -286,7 +286,7 @@ class ArchitectureTests(unittest.TestCase):
     def test_context_budget_counts_utf8_without_truncation(self):
         system=classifier_events._prompt('duplicate');schema=classifier_events._DUPLICATE_SCHEMA
         budget=classifier_events._event_user_budget(system,schema)
-        self.assertEqual(budget+len(system.encode())+len(json.dumps(schema).encode())+classifier_events._MAX_TOKENS+classifier_events._EVENT_TEMPLATE_OVERHEAD_BYTES,classifier_events._CONTEXT_TOKENS)
+        self.assertEqual(budget+len(system.encode())+len(json.dumps(schema).encode())+classifier_events._LOCAL_MODEL_OUTPUT_TOKEN_LIMIT+classifier_events._EVENT_TEMPLATE_OVERHEAD_BYTES,classifier_events._LOCAL_MODEL_CONTEXT_TOKEN_LIMIT)
         payload={'event':EVENT,'nearby':[{'title':'🙂'*budget}]}
         with patch.object(classifier_events,'_chat_completion') as chat,self.assertRaisesRegex(ValueError,'event_payload_size'):
             classifier_events._model_batch(system,schema,payload)
