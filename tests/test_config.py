@@ -21,22 +21,19 @@ class ConfigTests(unittest.TestCase):
                 with self.subTest(key=key), self.assertRaises(ValueError):
                     load(path)
 
-    def test_legacy_keys_are_accepted_and_ignored(self):
-        """Old database, report_lock, delivery_lock, discord_user_id keys are silently ignored."""
+    def test_rejects_legacy_keys(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'config.toml'
-            legacy = config_text() + (
-                'database = "/var/tmp/legacy.sqlite3"\n'
-                'report_lock = "/var/tmp/legacy-report.lock"\n'
-                'delivery_lock = "/var/tmp/legacy-delivery.lock"\n'
-                'discord_user_id = "9876543210"\n'
+            legacy = (
+                'database = "/var/tmp/legacy.sqlite3"\n',
+                'report_lock = "/var/tmp/legacy-report.lock"\n',
+                'delivery_lock = "/var/tmp/legacy-delivery.lock"\n',
+                'discord_user_id = "9876543210"\n',
             )
-            path.write_text(legacy)
-            config = load(path)
-            self.assertFalse(hasattr(config, 'database'))
-            self.assertFalse(hasattr(config, 'report_lock'))
-            self.assertFalse(hasattr(config, 'delivery_lock'))
-            self.assertFalse(hasattr(config, 'discord_user_id'))
+            for setting in legacy:
+                path.write_text(config_text() + setting)
+                with self.subTest(setting=setting), self.assertRaises(ValueError):
+                    load(path)
 
     def test_loads_explicit_generic_configuration(self):
         with tempfile.TemporaryDirectory() as directory:

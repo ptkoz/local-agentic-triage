@@ -131,13 +131,21 @@ class PackagingTests(unittest.TestCase):
             for path in obsolete:
                 self.assertFalse(path.exists(), path)
 
-    def test_upgrade_runbook_boots_out_legacy_reporter_before_install(self):
+    def test_upgrade_runbook_removes_legacy_config_before_bootstrap(self):
         readme = (ROOT / 'README.md').read_text()
         poll = readme.index('launchctl bootout gui/$(id -u)/local.local-agentic-triage.poll')
         report = readme.index('launchctl bootout gui/$(id -u)/local.local-agentic-triage.report')
         install = readme.index('python3.14 scripts/install.py --python', poll)
+        remove = readme.index('Remove these obsolete keys from the preserved config', install)
+        validate = readme.index('local-agentic-triage.pyz config validate', remove)
+        bootstrap = readme.index('Bootstrap only `local.local-agentic-triage.poll.plist`', validate)
         self.assertLess(poll, report)
         self.assertLess(report, install)
+        self.assertLess(install, remove)
+        self.assertLess(remove, validate)
+        self.assertLess(validate, bootstrap)
+        for key in ('database', 'report_lock', 'delivery_lock', 'discord_user_id'):
+            self.assertIn(f'`{key}`', readme[remove:validate])
         self.assertIn('removes the obsolete reporter plist, report log, and SQLite files', readme)
 
     def test_documentation_places_render_validation_before_optional_side_effects(self):

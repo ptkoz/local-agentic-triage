@@ -59,8 +59,15 @@ python3.14 scripts/install.py --python /absolute/path/to/python3.14
 ```
 
 `bootout` may report that a job is absent when it was not loaded. The installer
-preserves the existing config, accepts its obsolete reporting keys as ignored
-compatibility input, and removes the obsolete reporter plist, report log, and SQLite files.
+preserves the existing config and removes the obsolete reporter plist, report log, and SQLite files.
+Remove these obsolete keys from the preserved config: `database`, `report_lock`,
+`delivery_lock`, and `discord_user_id`. Validate the resulting config before
+loading the poller:
+
+```sh
+/absolute/path/to/python3.14 ~/.local/libexec/local-agentic-triage/local-agentic-triage.pyz config validate
+```
+
 Bootstrap only `local.local-agentic-triage.poll.plist` afterward and verify that
 `launchctl print gui/$(id -u)/local.local-agentic-triage.report` does not find a job.
 
