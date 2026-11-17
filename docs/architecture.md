@@ -3,11 +3,9 @@
 ## Component responsibilities
 
 - `common` owns configuration, strict JSON decoding, and process locking.
-- `classifier` owns fitting source mail to the model context, local-model
-  communication, summary generation, disposition classification, event
-  extraction, boolean duplicate assessment, and authorized event completion.
-  Summary generation returns a nonempty string; disposition classification
-  accepts that summary and returns only `archive` or `leave`.
+- `classifier` owns the complete LLM boundary: adapting domain inputs to the
+  bounded model context, invoking the local model, and validating model outputs
+  before exposing them to deterministic application logic.
 - `events` owns only the configured Calendar boundary: lookup normalization,
   independent input validation, canonicalization, horizon checks, creation, and
   readback verification.
