@@ -20,48 +20,54 @@ def _bounded_string(value,budget):
     return value[:low]+TRUNCATION
 
 
-def _compact(value):
-    return json.dumps(value,ensure_ascii=False,separators=(',',':'))
+def _string(value):
+    return json.dumps(value,ensure_ascii=False)
 
 
 @dataclass(frozen=True)
 class ContextBoundMail:
+    """Decorate Mail with a bounded, cached model serialization."""
     mail: Mail
     limit: int
 
-    @cached_property
-    def sent_date(self) -> str:
-        return _bounded_string(self.mail.sent_date,256)
+    def __getattr__(self,name):
+        if name.startswith('_'): raise AttributeError(name)
+        return getattr(self.mail,name)
 
     @cached_property
-    def sender(self) -> str:
-        return _bounded_string(self.mail.sender,1024)
+    def _bounded(self):
+        return (
+            _bounded_string(self.mail.sent_date,256),
+            _bounded_string(self.mail.sender,1024),
+            _bounded_string(self.mail.subject,2048),
+            _bounded_string(self.mail.body,6400),
+        )
+
+    def _serialize(self,item_separator,key_separator):
+        sent_date,sender,subject,body=self._bounded
+        metadata=item_separator.join((
+            _string('sent_date')+key_separator+_string(sent_date),
+            _string('sender')+key_separator+_string(sender),
+            _string('subject')+key_separator+_string(subject),
+        ))
+        return ('{'+_string('metadata')+key_separator+'{'+metadata+'}'
+                +item_separator+_string('body')+key_separator+_string(body)+'}')
 
     @cached_property
-    def subject(self) -> str:
-        return _bounded_string(self.mail.subject,2048)
+    def _model_json(self):
+        value=self._serialize(',',':')
+        if len(value.encode())>self.limit: raise ValueError('mail payload size')
+        return value
 
-    @cached_property
-    def body(self) -> str:
-        return _bounded_string(self.mail.body,6400)
 
-    @cached_property
-    def source(self) -> dict[str,object]:
-        source={
-            'metadata':{
-                'sent_date':self.sent_date,
-                'sender':self.sender,
-                'subject':self.subject,
-            },
-            'body':self.body,
-        }
-        if len(_compact(source).encode())>self.limit:
-            raise ValueError('mail payload size')
-        return source
+def serialize_mail(context_bound_mail: ContextBoundMail) -> str:
+    return context_bound_mail._model_json
 
-    @cached_property
-    def source_json(self) -> str:
-        return _compact(self.source)
+
+def serialize_destination_input(context_bound_mail: ContextBoundMail,summary: str) -> str:
+    serialize_mail(context_bound_mail)
+    mail=context_bound_mail._serialize(', ',': ')
+    return '{"summary": '+_string(summary)+', "mail": '+mail+'}'
 
 
 def fit_to_context(mail: Mail,limit: int) -> ContextBoundMail:

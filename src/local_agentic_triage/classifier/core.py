@@ -1,8 +1,8 @@
-import json
 from typing import Literal
 
 from local_agentic_triage.classifier import helpers
-from local_agentic_triage.classifier.input import ContextBoundMail
+from local_agentic_triage.classifier.input import (ContextBoundMail,
+    serialize_destination_input, serialize_mail)
 
 
 def validate_destination(obj):
@@ -24,12 +24,12 @@ def validate_summary(obj):
 def summarize(context_bound_mail: ContextBoundMail) -> str:
     return validate_summary(helpers.chat_completion([
         {'role':'system','content':helpers.summary_prompt()},
-        {'role':'user','content':context_bound_mail.source_json},
+        {'role':'user','content':serialize_mail(context_bound_mail)},
     ],helpers.SUMMARY_SCHEMA))['summary']
 
 
 def classify(context_bound_mail: ContextBoundMail,summary: str) -> Literal['archive','leave']:
     return validate_destination(helpers.chat_completion([
         {'role':'system','content':helpers.disposition_prompt()},
-        {'role':'user','content':json.dumps({'summary':summary,'mail':context_bound_mail.source},ensure_ascii=False)},
+        {'role':'user','content':serialize_destination_input(context_bound_mail,summary)},
     ],helpers.CLASSIFICATION_SCHEMA))['destination']

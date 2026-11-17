@@ -1,10 +1,9 @@
 import logging
 import json
-from email.utils import parseaddr
 from dataclasses import replace
 from local_agentic_triage.mail.mime import parse
 from local_agentic_triage.classifier.input import MAIL_PAYLOAD_BYTES, fit_to_context
-from local_agentic_triage.mail.vulcan import VULCAN_SENDER, forward
+from local_agentic_triage.mail.vulcan import VULCAN_SENDER, delegate_to_vulcan_handler
 from local_agentic_triage.mail.imap import uid_value
 from local_agentic_triage.classifier.core import summarize, classify
 from local_agentic_triage.events.core import process, parse_results, extract
@@ -76,9 +75,9 @@ def poll(mailbox, config, classifier=classify, event_processor=process, *, summa
                 config.discord_limit,
             )
 
-            # Optional: eduVULCAN handoff (best-effort, forward() never raises)
-            if parseaddr(mail.sender)[1].lower() == VULCAN_SENDER:
-                forward(uid, raw, config)
+            # Optional: eduVULCAN handoff (best-effort)
+            if mail.sender_address.lower() == VULCAN_SENDER.lower():
+                delegate_to_vulcan_handler(uid, raw, config)
 
             # Optional: Calendar enrichment (best-effort)
             log.info('mail_item_action item=%d uid=%s stage=events', index, uid)

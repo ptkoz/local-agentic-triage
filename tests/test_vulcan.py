@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 
 from helpers import make_config
 from local_agentic_triage.mail.pipeline import poll
-from local_agentic_triage.mail.vulcan import forward
+from local_agentic_triage.mail.vulcan import delegate_to_vulcan_handler
 
 DATE = b'Date: Sat, 31 Oct 2026 01:27:00 +0100\r\n\r\nprivate body\xff\rtrailer'
 
@@ -20,17 +20,17 @@ def raw_from(sender):
 
 
 class VulcanTests(unittest.TestCase):
-    def forward(self, outcome=None, raw=b'raw'):
+    def delegate(self, outcome=None, raw=b'raw'):
         def spawn(*args, **kwargs):
             if isinstance(outcome, Exception):
                 raise outcome
             return 123
         with patch('os.posix_spawn', side_effect=spawn) as run, \
              self.assertLogs('local_agentic_triage', level='INFO') as logs:
-            self.assertIsNone(forward('9', raw, make_config()))
+            self.assertIsNone(delegate_to_vulcan_handler('9', raw, make_config()))
         return run, '\n'.join(logs.output)
 
-    def test_forward_spawns_detached_orchestrator_with_exact_bytes_and_logs_start(self):
+    def test_delegate_to_vulcan_handler_spawns_detached_orchestrator_with_exact_bytes_and_logs_start(self):
         config = make_config()
         raw = raw_from(b'noreply@vulcan.net.pl')
         captured = []
@@ -44,7 +44,7 @@ class VulcanTests(unittest.TestCase):
              patch.dict('os.environ', {'HOME': home}), \
              patch('os.posix_spawn', side_effect=spawn) as run, \
              self.assertLogs('local_agentic_triage', level='INFO') as logs:
-            forward('9', raw, config)
+            delegate_to_vulcan_handler('9', raw, config)
         app = f'{home}/Library/Application Support/agentic-vulcan'
         launcher = f'{home}/.local/bin/agentic-vulcan-orchestrator'
         args, kwargs = run.call_args
@@ -59,18 +59,18 @@ class VulcanTests(unittest.TestCase):
         self.assertEqual(captured, [raw])
         self.assertEqual(logs.output, ['INFO:local_agentic_triage:agentic_vulcan_started uid=9 result=started'])
 
-    def test_forward_does_not_wait_and_absorbs_spawn_failures(self):
+    def test_delegate_to_vulcan_handler_does_not_wait_and_absorbs_spawn_failures(self):
         with patch('os.waitpid') as waitpid:
-            run, logs = self.forward()
+            run, logs = self.delegate()
         run.assert_called_once()
         waitpid.assert_not_called()
         self.assertEqual(logs, 'INFO:local_agentic_triage:agentic_vulcan_started uid=9 result=started')
         for outcome in (OSError('private'), RuntimeError('private')):
             with self.subTest(outcome=repr(outcome)[:40]):
-                run, logs = self.forward(outcome)
+                run, logs = self.delegate(outcome)
                 self.assertEqual(logs, 'ERROR:local_agentic_triage:agentic_vulcan_failed uid=9 result=failed')
 
-    def test_real_child_reads_exact_bytes_after_forward_returns(self):
+    def test_real_child_reads_exact_bytes_after_delegate_to_vulcan_handler_returns(self):
         raw = b'private\x00mail\xff' * 8192
         with tempfile.TemporaryDirectory() as home:
             root = Path(home)
@@ -92,7 +92,7 @@ class VulcanTests(unittest.TestCase):
                 warnings.simplefilter('always')
                 with patch.dict('os.environ', {'HOME': home}), \
                      self.assertLogs('local_agentic_triage', level='INFO'):
-                    forward('9', raw, make_config())
+                    delegate_to_vulcan_handler('9', raw, make_config())
                 gc.collect()
             self.assertFalse([warning for warning in caught if warning.category is ResourceWarning])
             self.assertLess(time.monotonic() - started, 1)
@@ -130,7 +130,7 @@ class VulcanTests(unittest.TestCase):
         run.stdin_bytes = captured
         return status, box, classifier, run, raw, '\n'.join(logs.output)
 
-    def test_matching_parsed_sender_forwards_exact_raw_after_classification(self):
+    def test_matching_parsed_sender_delegates_exact_raw_after_classification(self):
         for sender in (b'noreply@vulcan.net.pl', b'NoReply@VULCAN.NET.PL',
                        b'Dziennik VULCAN <noreply@vulcan.net.pl>'):
             for destination in ('leave', 'archive'):

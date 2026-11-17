@@ -95,6 +95,22 @@ class PipelineTests(unittest.TestCase):
         self.assertGreaterEqual(source.count('context_bound_mail = fit_to_context('),2)
         self.assertNotIn('mail_content_truncated',source)
 
+    def test_notification_and_vulcan_use_the_original_mail(self):
+        sender = 'Dziennik ' + 'V' * 1100 + ' <noreply@vulcan.net.pl>'
+        raw = ('Date: Sat, 31 Oct 2026 01:27:00 +0100\nFrom: ' + sender + '\n\nbody').encode()
+        box = Mock(validity='77')
+        box.candidates.return_value = ['9']
+        box.raw.return_value = raw
+        config = make_config()
+        runner = _runner_ok()
+        with patch('local_agentic_triage.mail.pipeline.delegate_to_vulcan_handler') as delegate, \
+             self.assertLogs('local_agentic_triage', level='INFO'):
+            self.assertEqual(self.run_poll(box, config, Mock(return_value='leave'), runner=runner), 0)
+        sent_text = runner.call_args.kwargs['input']
+        self.assertIn(f'Od **{sender}** z dnia', sent_text)
+        self.assertNotIn('[content truncated]', sent_text)
+        delegate.assert_called_once_with('9', raw, config)
+
     def test_mandatory_summary_for_leave(self):
         """Every mail, including leave, must produce a non-empty summary."""
         box = Mock(validity='77')
@@ -283,11 +299,11 @@ class PipelineTests(unittest.TestCase):
         classifier = Mock(return_value='archive')
         events = Mock()
         runner = _runner_ok()
-        with patch('local_agentic_triage.mail.pipeline.forward') as forward_mock, \
+        with patch('local_agentic_triage.mail.pipeline.delegate_to_vulcan_handler') as delegate_mock, \
              self.assertLogs('local_agentic_triage', level='ERROR'):
             self.assertEqual(self.run_poll(box, make_config(discord_limit=100), classifier,
                                   events, runner=runner), 1)
-        forward_mock.assert_not_called()
+        delegate_mock.assert_not_called()
         self.extractor.assert_not_called()
         events.assert_not_called()
         runner.assert_not_called()

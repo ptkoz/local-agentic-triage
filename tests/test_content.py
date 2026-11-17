@@ -1,7 +1,10 @@
 import unittest
+import copy
 import inspect
+from dataclasses import FrozenInstanceError, fields
 from pathlib import Path
-from local_agentic_triage.mail.mime import parse
+from local_agentic_triage.mail.mime import Mail, parse
+from local_agentic_triage.classifier import input as classifier_input
 from local_agentic_triage.classifier.input import ContextBoundMail, fit_to_context
 from local_agentic_triage.classifier.core import classify, summarize
 from local_agentic_triage.classifier import helpers as classifier_helpers
@@ -28,6 +31,7 @@ class ContentTests(unittest.TestCase):
         m=parse(raw,1000)
         self.assertEqual(m.body,'Hello & world')
         self.assertEqual(m.sent_date,'2025-01-01T12:00:00+01:00')
+        self.assertEqual(m.sender_address,'a@example.invalid')
         self.assertNotIn('SECRET',m.body)
         with self.assertRaises(ValueError): parse(raw,2)
     def test_plain_preferred(self):
@@ -149,51 +153,76 @@ class ContentTests(unittest.TestCase):
                     with self.assertRaises(ModelContentJsonInvalid) as caught: summarize(mail)
                 self.assertEqual(error_code(caught.exception),'model_content_json_invalid')
 
-    def test_model_input_bounds_every_mail_field(self):
-        from types import SimpleNamespace
-        mail=SimpleNamespace(sent_date='d'*200001,sender='s'*200001,subject='t'*200001,body='b'*200001)
+    def test_context_bound_mail_decorates_the_original_mail(self):
+        mail=parse(b'From: sender@example.invalid\nSubject: Synthetic\n\n'+b'b'*20000,0)
         context_bound_mail=fit_to_context(mail,10000)
         self.assertIsInstance(context_bound_mail,ContextBoundMail)
         self.assertIs(context_bound_mail.mail,mail)
-        payload={**context_bound_mail.source['metadata'],'body':context_bound_mail.source['body']}
-        encoded=json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode()
-        self.assertLessEqual(len(encoded),10000)
-        for field in ('sent_date','sender','subject','body'):
-            self.assertLess(len(payload[field]),200001)
-            self.assertTrue(payload[field].endswith('[content truncated]'))
-        source=context_bound_mail.source
-        self.assertEqual(set(source),{'metadata','body'})
-        self.assertEqual(set(source['metadata']),{'sent_date','sender','subject'})
-        self.assertLessEqual(len(json.dumps(source,ensure_ascii=False,separators=(',',':')).encode()),10000)
+        for field in fields(Mail):
+            with self.subTest(field=field.name):
+                self.assertIs(getattr(context_bound_mail,field.name),getattr(mail,field.name))
+        with self.assertRaises(FrozenInstanceError):
+            context_bound_mail.body='changed'
+        self.assertEqual(copy.copy(context_bound_mail),context_bound_mail)
 
-    def test_context_bound_mail_keeps_source_identity_and_caches_representation(self):
+    def test_context_bound_mail_keeps_model_state_private(self):
         mail=parse(b'From: sender@example.invalid\nSubject: Synthetic\n\nbody',1000)
         context_bound_mail=fit_to_context(mail,10000)
-        self.assertIsInstance(context_bound_mail,ContextBoundMail)
-        self.assertIs(context_bound_mail.mail,mail)
-        self.assertNotIsInstance(context_bound_mail,tuple)
-        self.assertIs(context_bound_mail.source,context_bound_mail.source)
-        self.assertIs(context_bound_mail.source_json,context_bound_mail.source_json)
-        self.assertEqual(context_bound_mail.source_json,
-            '{"metadata":{"sent_date":"","sender":"sender@example.invalid","subject":"Synthetic"},"body":"body"}')
-        self.assertEqual(json.loads(context_bound_mail.source_json),context_bound_mail.source)
-        self.assertEqual(context_bound_mail.sender,'sender@example.invalid')
-        self.assertEqual(context_bound_mail.subject,'Synthetic')
-        from local_agentic_triage.classifier import input as classifier_input
+        with patch.object(classifier_helpers,'chat_completion',side_effect=[
+                {'summary':'Opis.'},{'destination':'leave'}]):
+            classify(context_bound_mail,summarize(context_bound_mail))
+        self.assertEqual({name for name in vars(context_bound_mail) if not name.startswith('_')},
+                         {'mail','limit'})
+        for name in ('source','source_json'):
+            self.assertFalse(hasattr(context_bound_mail,name))
         self.assertFalse(hasattr(classifier_input,'FrozenDict'))
-        with self.assertRaises((AttributeError,TypeError)):
-            setattr(context_bound_mail,'mail',mail)
 
-    def test_context_fitting_is_lazy_cached_and_fail_closed_at_supplied_limit(self):
-        from local_agentic_triage.classifier import input as classifier_input
+    def test_model_json_bounds_every_mail_field_and_fails_closed(self):
+        mail=Mail(sender='s'*200001,sender_address='s'*200001,sent_date='d'*200001,body='b'*200001,subject='t'*200001)
+        context_bound_mail=fit_to_context(mail,10000)
+        source=classifier_input.serialize_mail(context_bound_mail)
+        self.assertLessEqual(len(source.encode()),10000)
+        fitted=json.loads(source)
+        self.assertEqual(set(fitted),{'metadata','body'})
+        self.assertEqual(set(fitted['metadata']),{'sent_date','sender','subject'})
+        for field,value in (*fitted['metadata'].items(),('body',fitted['body'])):
+            with self.subTest(field=field):
+                self.assertLess(len(value),200001)
+                self.assertTrue(value.endswith('[content truncated]'))
+                self.assertIs(getattr(context_bound_mail,field),getattr(mail,field))
+        with patch.object(classifier_helpers,'chat_completion') as chat, \
+             self.assertRaisesRegex(ValueError,'mail payload size'):
+            summarize(fit_to_context(mail,1))
+        chat.assert_not_called()
+        with patch.object(classifier_helpers,'chat_completion') as chat, \
+             self.assertRaisesRegex(ValueError,'mail payload size'):
+            classify(fit_to_context(mail,1),'Opis.')
+        chat.assert_not_called()
+
+    def test_context_fitting_is_lazy_and_shared_by_every_serialization(self):
         mail=parse(b'From: sender@example.invalid\nSubject: Synthetic\n\nbody',1000)
         with patch.object(classifier_input,'_bounded_string',
                           wraps=classifier_input._bounded_string) as bound:
             context_bound_mail=fit_to_context(mail,10000)
             bound.assert_not_called()
-            context_bound_mail.source_json
-            context_bound_mail.source
-            context_bound_mail.source_json
+            classifier_input.serialize_mail(context_bound_mail)
+            classifier_input.serialize_destination_input(context_bound_mail,'Opis.')
+            classifier_input.serialize_mail(context_bound_mail)
         self.assertEqual(bound.call_count,4)
-        with self.assertRaisesRegex(ValueError,'mail payload size'):
-            fit_to_context(mail,1).source_json
+
+    def test_model_consumers_serialize_the_same_decorated_mail(self):
+        from local_agentic_triage.events import core as events
+        mail=Mail(sender='s'*5000,sender_address='s'*5000,sent_date='2025-01-01T12:00:00+01:00',body='b'*20000,subject='t'*5000)
+        context_bound_mail=fit_to_context(mail,10000)
+        with patch.object(classifier_helpers,'chat_completion',side_effect=[
+                {'summary':'Opis.'},{'destination':'leave'}]) as chat, \
+             patch.object(events,'chat_completion',return_value={'events':[]}) as extraction:
+            classify(context_bound_mail,summarize(context_bound_mail))
+            events.extract(context_bound_mail)
+        source=classifier_input.serialize_mail(context_bound_mail)
+        summary_content,destination_content=(c.args[0][1]['content'] for c in chat.call_args_list)
+        self.assertEqual(summary_content,source)
+        self.assertEqual(extraction.call_args.args[0][1]['content'],source)
+        self.assertEqual(destination_content,
+                         classifier_input.serialize_destination_input(context_bound_mail,'Opis.'))
+        self.assertEqual(json.loads(destination_content),{'summary':'Opis.','mail':json.loads(source)})
