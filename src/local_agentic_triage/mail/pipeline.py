@@ -82,8 +82,8 @@ def poll(mailbox, config, classifier=classify, event_processor=process_events, *
             # Optional: Calendar enrichment (best-effort)
             log.info('mail_item_action item=%d uid=%s stage=events', index, uid)
             try:
-                extracted = extractor(context_bound_mail)
-                event_result = event_processor(extracted, config)
+                extracted_events = extractor(context_bound_mail)
+                event_result = event_processor(extracted_events, config)
                 for entry in event_result['results']:
                     log.info('mail_event_result uid=%s index=%d outcome=%s reason=%s',
                              uid, entry['index'], entry['outcome'], entry['reason'])
