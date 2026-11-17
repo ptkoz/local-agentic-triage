@@ -5,10 +5,10 @@ from local_agentic_triage.classifier import resources
 from local_agentic_triage.classifier.input import (ContextBoundMail,
     serialize_destination_input, serialize_mail)
 
-__all__ = ('validate_destination', 'validate_summary', 'summarize', 'classify')
+__all__ = ('summarize', 'classify')
 
 
-def validate_destination(obj):
+def _validate_destination(obj):
     if not isinstance(obj,dict) or set(obj)!={'destination'}:
         raise ValueError('classification keys')
     if obj['destination'] not in ('leave','archive'):
@@ -16,7 +16,7 @@ def validate_destination(obj):
     return obj
 
 
-def validate_summary(obj):
+def _validate_summary(obj):
     if not isinstance(obj,dict) or set(obj)!={'summary'}:
         raise ValueError('classification keys')
     if not isinstance(obj['summary'],str) or not obj['summary']:
@@ -25,14 +25,14 @@ def validate_summary(obj):
 
 
 def summarize(context_bound_mail: ContextBoundMail) -> str:
-    return validate_summary(helpers.chat_completion([
+    return _validate_summary(helpers.chat_completion([
         {'role':'system','content':resources.summarize_prompt()},
         {'role':'user','content':serialize_mail(context_bound_mail)},
     ],resources.SUMMARIZE_OUTPUT_SCHEMA))['summary']
 
 
 def classify(context_bound_mail: ContextBoundMail,summary: str) -> Literal['archive','leave']:
-    return validate_destination(helpers.chat_completion([
+    return _validate_destination(helpers.chat_completion([
         {'role':'system','content':resources.classify_prompt()},
         {'role':'user','content':serialize_destination_input(context_bound_mail,summary)},
     ],resources.CLASSIFY_OUTPUT_SCHEMA))['destination']

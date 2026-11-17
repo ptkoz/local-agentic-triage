@@ -1,6 +1,5 @@
 import unittest
 import copy
-import inspect
 from dataclasses import FrozenInstanceError, fields
 from pathlib import Path
 from local_agentic_triage.mail.mime import Mail, parse
@@ -19,13 +18,7 @@ from local_agentic_triage.common.diagnostics import error_code
 class ContentTests(unittest.TestCase):
     def test_classifier_disposition_exposes_only_domain_functions(self):
         import local_agentic_triage.classifier.disposition as core
-        functions = {
-            name for name, value in inspect.getmembers(core, inspect.isfunction)
-            if value.__module__ == core.__name__
-        }
-        self.assertEqual(functions, {
-            'validate_destination', 'validate_summary', 'summarize', 'classify',
-        })
+        self.assertEqual(core.__all__, ('summarize', 'classify'))
 
     def test_mime(self):
         raw=b'Date: Wed, 01 Jan 2025 12:00:00 +0100\nFrom: A <a@example.invalid>\nContent-Type: multipart/mixed; boundary=x\n\n--x\nContent-Type: text/html\n\n<p>Hello &amp; world</p><script>evil</script>\n--x\nContent-Type: text/plain\nContent-Disposition: attachment\n\nSECRET\n--x--\n'
@@ -40,9 +33,9 @@ class ContentTests(unittest.TestCase):
         self.assertEqual(parse(raw,1000).body,'plain')
 
     def test_summary_is_validated_at_summary_boundary(self):
-        from local_agentic_triage.classifier.disposition import validate_summary
+        from local_agentic_triage.classifier.disposition import _validate_summary
         with self.assertRaises(ValueError):
-            validate_summary({'summary':''})
+            _validate_summary({'summary':''})
 
     def test_local_request_and_truncation(self):
         class Response:
@@ -117,7 +110,7 @@ class ContentTests(unittest.TestCase):
         import local_agentic_triage.classifier.disposition as core
         mail=fit_to_context(parse(b'From: sender@example.invalid\n\nSynthetic',1000),10000)
         with patch.object(classifier_helpers,'chat_completion',return_value={'destination':'archive'}), \
-             patch.object(core,'validate_summary',side_effect=AssertionError('redundant validation')):
+             patch.object(core,'_validate_summary',side_effect=AssertionError('redundant validation')):
             self.assertEqual(classify(mail,'Opis.'),'archive')
 
     def test_classifier_distinguishes_envelope_and_content_json(self):

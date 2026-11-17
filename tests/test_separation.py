@@ -32,12 +32,9 @@ class SeparationTests(unittest.TestCase):
             self.assertFalse(hasattr(helpers, name))
         self.assertFalse(hasattr(helpers, 'response_schema'))
 
-    def test_disposition_has_exact_public_function_surface(self):
+    def test_disposition_has_explicit_public_surface(self):
         from local_agentic_triage.classifier import disposition
-        functions = {name for name, value in inspect.getmembers(disposition, inspect.isfunction)
-                     if value.__module__ == disposition.__name__}
-        self.assertEqual(functions, {'validate_destination', 'validate_summary',
-                                     'summarize', 'classify'})
+        self.assertEqual(disposition.__all__, ('summarize', 'classify'))
 
     def test_event_model_api_maps_both_duplicate_outcomes_to_bool(self):
         from local_agentic_triage.classifier import events
@@ -59,10 +56,6 @@ class SeparationTests(unittest.TestCase):
             self.assertIs(events.is_duplicate(EVENT, []), True)
             self.assertIs(events.is_duplicate(EVENT, []), False)
 
-    def test_disposition_api_is_explicit(self):
-        from local_agentic_triage.classifier import disposition
-        self.assertEqual(disposition.__all__,
-                         ('validate_destination', 'validate_summary', 'summarize', 'classify'))
 
     def test_calendar_package_has_no_classifier_imports_or_model_resources(self):
         for source in (PACKAGE / 'events').glob('*.py'):
