@@ -2,7 +2,7 @@ import json
 import unittest
 from unittest.mock import patch, Mock
 from local_agentic_triage.classifier import disposition as core
-from local_agentic_triage.classifier import helpers as classifier_helpers
+from local_agentic_triage.classifier import transport as classifier_transport
 from local_agentic_triage.classifier import resources
 from local_agentic_triage.classifier.resources import classify_prompt
 from local_agentic_triage.mail.mime import parse
@@ -11,7 +11,7 @@ from local_agentic_triage.classifier.input import fit_to_context
 class FivePassTests(unittest.TestCase):
     def test_destination_pass_returns_only_disposition(self):
         mail=fit_to_context(parse(b'From: synthetic@example.invalid\n\nbody',1000),10000)
-        with patch.object(classifier_helpers,'chat_completion',return_value={'destination':'leave'}) as chat:
+        with patch.object(classifier_transport,'chat_completion',return_value={'destination':'leave'}) as chat:
             self.assertEqual(core.classify(mail,'Synthetic summary'),'leave')
         messages,schema=chat.call_args.args
         self.assertEqual(set(schema['json_schema']['schema']['properties']),{'destination'})

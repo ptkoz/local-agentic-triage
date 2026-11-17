@@ -25,7 +25,7 @@ class ArchitectureTests(unittest.TestCase):
             order.append('completion'); return dict(EVENT)
         def create(event):
             order.append('create'); rows.append(dict(title=event['title'],start=event['start'],end=event['end'],all_day=False,location=None))
-        with patch.object(classifier_events.helpers,'chat_completion_with_payload',side_effect=model),patch('local_agentic_triage.events.calendar.Calendar.nearby',side_effect=nearby),patch('local_agentic_triage.events.calendar.Calendar.create',side_effect=create):
+        with patch.object(classifier_events.transport,'chat_completion_with_payload',side_effect=model),patch('local_agentic_triage.events.calendar.Calendar.nearby',side_effect=nearby),patch('local_agentic_triage.events.calendar.Calendar.create',side_effect=create):
             result=event_pipeline.process_events([EVENT,dict(EVENT)],make_config(),clock=lambda tz=None:NOW)
         self.assertEqual([r['outcome'] for r in result['results']],['created','duplicate'])
         self.assertEqual(order,['lookup','duplicate','completion','create','lookup','duplicate'])
@@ -56,7 +56,7 @@ class ArchitectureTests(unittest.TestCase):
                     self.assertIs(schema,resources.COMPLETE_EVENT_OUTPUT_SCHEMA)
                     order.append('completion')
                     return dict(event)
-                with patch.object(classifier_events.helpers,'chat_completion_with_payload',side_effect=model),patch.object(Calendar,'call',side_effect=call):
+                with patch.object(classifier_events.transport,'chat_completion_with_payload',side_effect=model),patch.object(Calendar,'call',side_effect=call):
                     result=event_pipeline.process_events([first,second],make_config(),clock=lambda tz=None:NOW)
                 self.assertEqual(result,{'status':'ok','results':[
                     {'index':0,'outcome':'skipped','reason':reason},
@@ -67,7 +67,7 @@ class ArchitectureTests(unittest.TestCase):
     def test_relaxed_structure_and_start_only_gate(self):
         candidates=[EVENT|dict(title=None,start=start,end='bad',date_note='',location='') for start in (None,'','bad')]
         classifier_events._validate_events(candidates)
-        with patch.object(classifier_events.helpers,'chat_completion_with_payload') as model,patch('local_agentic_triage.events.calendar.Calendar.nearby') as nearby:
+        with patch.object(classifier_events.transport,'chat_completion_with_payload') as model,patch('local_agentic_triage.events.calendar.Calendar.nearby') as nearby:
             result=event_pipeline.process_events(candidates,make_config())
         self.assertEqual([r['reason'] for r in result['results']],['missing_date','missing_date','invalid_date'])
         model.assert_not_called(); nearby.assert_not_called()
@@ -81,7 +81,7 @@ class ArchitectureTests(unittest.TestCase):
                 classifier_events._validate_completion_result(supplied|{key:'replacement'},supplied)
 
     def test_transport_full_response_and_strict_utf8(self):
-        from local_agentic_triage.classifier import helpers as transport
+        from local_agentic_triage.classifier import transport
         from test_events import decision_response
         response=decision_response({'value':'x'*1_000_001})
         with patch('urllib.request.OpenerDirector.open',return_value=response) as opened:
@@ -93,7 +93,7 @@ class ArchitectureTests(unittest.TestCase):
             transport.chat_completion([],{})
 
     def test_later_invalid_candidate_cannot_undo_verified_write(self):
-        with patch.object(classifier_events.helpers,'chat_completion_with_payload',side_effect=[{'outcome':'create'},EVENT]),patch('local_agentic_triage.events.calendar.Calendar.nearby',return_value=[]),patch('local_agentic_triage.events.calendar.Calendar.create') as create:
+        with patch.object(classifier_events.transport,'chat_completion_with_payload',side_effect=[{'outcome':'create'},EVENT]),patch('local_agentic_triage.events.calendar.Calendar.nearby',return_value=[]),patch('local_agentic_triage.events.calendar.Calendar.create') as create:
             with self.assertRaises(ValueError):
                 event_pipeline.process_events([EVENT,EVENT|{'title':False}],make_config(),clock=lambda tz=None:NOW)
         create.assert_called_once_with(EVENT)
@@ -103,7 +103,7 @@ class ArchitectureTests(unittest.TestCase):
             classifier_events._validate_completion_result(EVENT|{'location':'Synthetic'},EVENT)
 
     def run_events(self,candidates,answers):
-        with patch.object(classifier_events.helpers,'chat_completion',side_effect=answers) as chat,patch('local_agentic_triage.events.calendar.Calendar.nearby',return_value=[]) as nearby,patch('local_agentic_triage.events.calendar.Calendar.create') as create:
+        with patch.object(classifier_events.transport,'chat_completion',side_effect=answers) as chat,patch('local_agentic_triage.events.calendar.Calendar.nearby',return_value=[]) as nearby,patch('local_agentic_triage.events.calendar.Calendar.create') as create:
             result=event_pipeline.process_events(candidates,make_config(),clock=lambda tz=None:NOW)
         return result,chat,nearby,create
 
@@ -145,7 +145,7 @@ class ArchitectureTests(unittest.TestCase):
     def test_completion_protocol_authorization_and_location_errors_still_abort(self):
         for answer in (EVENT|{'extra':None},EVENT|{'end':False},
                        EVENT|{'title':'Changed'},EVENT|{'location':'Inferred'}):
-            with self.subTest(answer=answer),patch.object(classifier_events.helpers,'chat_completion_with_payload',side_effect=[{'outcome':'create'},answer]) as model,patch('local_agentic_triage.events.calendar.Calendar.nearby',return_value=[]) as nearby,patch('local_agentic_triage.events.calendar.Calendar.create') as create:
+            with self.subTest(answer=answer),patch.object(classifier_events.transport,'chat_completion_with_payload',side_effect=[{'outcome':'create'},answer]) as model,patch('local_agentic_triage.events.calendar.Calendar.nearby',return_value=[]) as nearby,patch('local_agentic_triage.events.calendar.Calendar.create') as create:
                 with self.assertRaises(ValueError):event_pipeline.process_events([EVENT,EVENT],make_config(),clock=lambda tz=None:NOW)
                 self.assertEqual(model.call_count,2);nearby.assert_called_once_with(EVENT);create.assert_not_called()
 
@@ -168,7 +168,7 @@ class ArchitectureTests(unittest.TestCase):
         def call(data):
             if data['operation']=='search':return []
             writes.append(data['event']);return dict(data['event'])
-        with patch.object(classifier_events.helpers,'chat_completion_with_payload',side_effect=[{'outcome':'create'},EVENT,{'outcome':'create'},candidate]),patch.object(Calendar,'call',side_effect=call):
+        with patch.object(classifier_events.transport,'chat_completion_with_payload',side_effect=[{'outcome':'create'},EVENT,{'outcome':'create'},candidate]),patch.object(Calendar,'call',side_effect=call):
             result=event_pipeline.process_events([EVENT,candidate],make_config(),clock=lambda tz=None:NOW)
         self.assertEqual(result['results'],[{'index':0,'outcome':'created','reason':None},
                                             {'index':1,'outcome':'skipped','reason':'missing_end'}])
@@ -183,7 +183,7 @@ class ArchitectureTests(unittest.TestCase):
                 self.assertEqual(result['results'][1]['outcome'],'created')
 
     def test_lookup_failure_is_not_empty_evidence(self):
-        with patch.object(classifier_events.helpers,'chat_completion') as chat,patch('local_agentic_triage.events.calendar.Calendar.nearby',side_effect=RuntimeError('synthetic')),patch('local_agentic_triage.events.calendar.Calendar.create') as create:
+        with patch.object(classifier_events.transport,'chat_completion') as chat,patch('local_agentic_triage.events.calendar.Calendar.nearby',side_effect=RuntimeError('synthetic')),patch('local_agentic_triage.events.calendar.Calendar.create') as create:
             with self.assertRaises(RuntimeError):event_pipeline.process_events([EVENT],make_config())
         chat.assert_not_called();create.assert_not_called()
 
@@ -197,7 +197,7 @@ class ArchitectureTests(unittest.TestCase):
     def test_start_gate_accepts_only_supported_dates(self):
         from local_agentic_triage.events.calendar import Calendar
         invalid=['2099-02-30','2099-01-02T10:00:00','2099-01-02 10:00:00Z','20990102','2099-01-02T10:00:00+25:00']
-        with patch.object(classifier_events.helpers,'chat_completion') as chat,patch.object(Calendar,'nearby') as nearby:
+        with patch.object(classifier_events.transport,'chat_completion') as chat,patch.object(Calendar,'nearby') as nearby:
             result=event_pipeline.process_events([EVENT|{'start':s} for s in invalid],make_config())
         self.assertEqual([r['reason'] for r in result['results']],['invalid_date']*len(invalid))
         chat.assert_not_called();nearby.assert_not_called()
@@ -210,10 +210,10 @@ class ArchitectureTests(unittest.TestCase):
         mail=fit_to_context(parse(b'From: synthetic@example.invalid\n\nbody',1000),10000)
         candidate={key:None for key in EVENT}
         for value in (candidate,EVENT|{'end':'bad','title':'','location':''}):
-            with patch.object(classifier_events.helpers,'chat_completion',return_value={'events':[value]}):
+            with patch.object(classifier_events.transport,'chat_completion',return_value={'events':[value]}):
                 self.assertEqual(classifier_events.extract_events(mail),[value])
         for value in (EVENT|{'extra':None},{k:v for k,v in EVENT.items() if k!='location'},EVENT|{'end':False}):
-            with self.subTest(value=value),patch.object(classifier_events.helpers,'chat_completion',return_value={'events':[value]}),self.assertRaises(ValueError):classifier_events.extract_events(mail)
+            with self.subTest(value=value),patch.object(classifier_events.transport,'chat_completion',return_value={'events':[value]}),self.assertRaises(ValueError):classifier_events.extract_events(mail)
 
     def test_completion_preserves_exact_start_representation(self):
         with self.assertRaises(ValueError):
@@ -233,7 +233,7 @@ class ArchitectureTests(unittest.TestCase):
             writes.append(data['event'])
             if len(writes)==2:raise RuntimeError('synthetic')
             return data['event']
-        with patch.object(classifier_events.helpers,'chat_completion',side_effect=[{'outcome':'create'},EVENT]*2),patch.object(Calendar,'call',side_effect=call):
+        with patch.object(classifier_events.transport,'chat_completion',side_effect=[{'outcome':'create'},EVENT]*2),patch.object(Calendar,'call',side_effect=call):
             with self.assertRaises(RuntimeError):event_pipeline.process_events([EVENT,EVENT],make_config(),clock=lambda tz=None:NOW)
         self.assertEqual(writes,[canonical(EVENT)]*2)
 
@@ -254,7 +254,7 @@ class ArchitectureTests(unittest.TestCase):
     def test_create_repeats_temporal_check_after_models(self):
         from local_agentic_triage.events.calendar import Calendar
         moments=iter([NOW,datetime(2099,1,4,tzinfo=timezone.utc)])
-        with patch.object(classifier_events.helpers,'chat_completion',side_effect=[{'outcome':'create'},EVENT]),patch.object(Calendar,'nearby',return_value=[]),patch.object(Calendar,'call') as call:
+        with patch.object(classifier_events.transport,'chat_completion',side_effect=[{'outcome':'create'},EVENT]),patch.object(Calendar,'nearby',return_value=[]),patch.object(Calendar,'call') as call:
             with self.assertRaisesRegex(ValueError,'calendar_too_soon'):
                 event_pipeline.process_events([EVENT],make_config(),clock=lambda tz=None:next(moments))
         call.assert_not_called()
@@ -286,17 +286,17 @@ class ArchitectureTests(unittest.TestCase):
 
     def test_context_budget_counts_utf8_without_truncation(self):
         system=resources.is_duplicate_prompt();schema=resources.IS_DUPLICATE_OUTPUT_SCHEMA
-        budget=(classifier_events.helpers.LOCAL_MODEL_CONTEXT_TOKEN_LIMIT
+        budget=(classifier_events.transport.LOCAL_MODEL_CONTEXT_TOKEN_LIMIT
                 - len(system.encode()) - len(json.dumps(schema).encode())
-                - classifier_events.helpers.LOCAL_MODEL_OUTPUT_TOKEN_LIMIT
-                - classifier_events.helpers.LOCAL_MODEL_REQUEST_OVERHEAD_BYTES)
+                - classifier_events.transport.LOCAL_MODEL_OUTPUT_TOKEN_LIMIT
+                - classifier_events.transport.LOCAL_MODEL_REQUEST_OVERHEAD_BYTES)
         payload={'event':EVENT,'nearby':[{'title':'🙂'*budget}]}
-        with patch.object(classifier_events.helpers,'chat_completion') as chat,self.assertRaisesRegex(ValueError,'event_payload_size'):
-            classifier_events.helpers.chat_completion_with_payload(system,schema,payload,'event')
+        with patch.object(classifier_events.transport,'chat_completion') as chat,self.assertRaisesRegex(ValueError,'event_payload_size'):
+            classifier_events.transport.chat_completion_with_payload(system,schema,payload,'event')
         chat.assert_not_called()
         payload={'event':EVENT,'nearby':[]}
-        with patch.object(classifier_events.helpers,'chat_completion',return_value={'outcome':'create'}) as chat:
-            classifier_events.helpers.chat_completion_with_payload(system,schema,payload,'event')
+        with patch.object(classifier_events.transport,'chat_completion',return_value={'outcome':'create'}) as chat:
+            classifier_events.transport.chat_completion_with_payload(system,schema,payload,'event')
         self.assertEqual(chat.call_args.args[0][1]['content'],
                          json.dumps(payload,ensure_ascii=False,separators=(',',':')))
 

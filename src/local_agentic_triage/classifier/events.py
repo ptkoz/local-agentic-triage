@@ -1,5 +1,5 @@
 from local_agentic_triage.classifier import resources
-from local_agentic_triage.classifier import helpers
+from local_agentic_triage.classifier import transport
 from local_agentic_triage.classifier.input import (
     ContextBoundMail,
     serialize_mail,
@@ -45,7 +45,7 @@ def _validate_completion_result(result, event):
 
 
 def extract_events(context_bound_mail: ContextBoundMail):
-    result = helpers.chat_completion([
+    result = transport.chat_completion([
         {'role': 'system', 'content': resources.extract_events_prompt()},
         {'role': 'user', 'content': serialize_mail(context_bound_mail)},
     ], resources.EXTRACT_EVENTS_OUTPUT_SCHEMA)
@@ -57,7 +57,7 @@ def extract_events(context_bound_mail: ContextBoundMail):
 
 def is_duplicate(event, nearby) -> bool:
     _validate_events([event])
-    outcome = _validate_duplicate_result(helpers.chat_completion_with_payload(
+    outcome = _validate_duplicate_result(transport.chat_completion_with_payload(
         resources.is_duplicate_prompt(), resources.IS_DUPLICATE_OUTPUT_SCHEMA,
         {'event': event, 'nearby': nearby}, 'event',
     ))
@@ -66,7 +66,7 @@ def is_duplicate(event, nearby) -> bool:
 
 def complete_event(event):
     _validate_events([event])
-    result = helpers.chat_completion_with_payload(
+    result = transport.chat_completion_with_payload(
         resources.complete_event_prompt(), resources.COMPLETE_EVENT_OUTPUT_SCHEMA,
         {'event': event}, 'event')
     return _validate_completion_result(result, event)

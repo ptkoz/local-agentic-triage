@@ -12,8 +12,9 @@ later event failures never block leave/archive.
 
 `classifier/resources.py` is the single owner and loader of every frozen model
 prompt and output schema; each resource is named after its consuming public
-classifier function. `classifier/helpers.py` owns only model transport and
-limits. `events` contains only the Calendar adapter and deterministic Calendar validation.
+classifier function. `classifier/transport.py` owns model requests and their
+context limits. `events` handles Calendar access and deterministic Calendar
+validation.
 `mail/event_pipeline.py` orchestrates fresh lookup, boolean duplicate checking,
 completion, horizon enforcement, and verified creation for each candidate.
 
@@ -139,7 +140,7 @@ The poll LaunchAgent runs every 300 seconds. See
    absolute.
 5. Before allowing live effects, verify the external dependencies separately:
    Himalaya v2.1.0 can access the configured account and both mailboxes; Docker
-   Model Runner is running the model documented in `classifier/helpers.py` on its
+   Model Runner is running the model documented in `classifier/transport.py` on its
    loopback endpoint; Hermes has valid Discord delivery credentials; and the target
    Calendar exists with Calendar Automation/TCC permission granted to the
    production process. A GUI login

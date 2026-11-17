@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import Mock, patch
 from helpers import make_config
-from local_agentic_triage.classifier.helpers import (ModelContentJsonInvalid,
+from local_agentic_triage.classifier.transport import (ModelContentJsonInvalid,
     ModelEnvelopeJsonInvalid, NoRedirect)
 from local_agentic_triage.common.diagnostics import error_code
 from local_agentic_triage.classifier import events as classifier_events
@@ -62,20 +62,20 @@ class EventTests(unittest.TestCase):
 
 
     def test_event_source_has_no_second_transport_or_stream_parser(self):
-        import local_agentic_triage.classifier.helpers as classifier
+        import local_agentic_triage.classifier.transport as classifier
         import local_agentic_triage.classifier.events as events
         text=Path(events.__file__).read_text(encoding='utf-8')
         for banned in ('subprocess','urllib','stream-json','parse_stream_envelope','DELIMITER','MAX_STREAM_','--toolsets','query-file','[content truncated]'):
             self.assertNotIn(banned,text,banned)
         self.assertFalse(hasattr(events,'parse_stream_envelope'))
-        self.assertIs(events.helpers.chat_completion,classifier.chat_completion)
+        self.assertIs(events.transport.chat_completion,classifier.chat_completion)
         transport=Path(classifier.__file__).read_text(encoding='utf-8')
         self.assertEqual(transport.count('ProxyHandler'),1)
         self.assertEqual(transport.count('build_opener'),1)
 
 
     def test_process_results_are_ordered_by_construction(self):
-        with patch.object(classifier_events.helpers, 'chat_completion_with_payload', return_value={'outcome': 'existing'}), \
+        with patch.object(classifier_events.transport, 'chat_completion_with_payload', return_value={'outcome': 'existing'}), \
              patch('local_agentic_triage.events.calendar.Calendar.nearby', return_value=[]):
             result = process_events([EVENT, EVENT | {'title': 'Second', 'start': '2026-12-02'}],
                                     make_config())

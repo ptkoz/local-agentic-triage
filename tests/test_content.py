@@ -6,8 +6,8 @@ from local_agentic_triage.mail.mime import Mail, parse
 from local_agentic_triage.classifier import input as classifier_input
 from local_agentic_triage.classifier.input import ContextBoundMail, fit_to_context
 from local_agentic_triage.classifier.disposition import classify, summarize
-from local_agentic_triage.classifier import helpers as classifier_helpers
-from local_agentic_triage.classifier.helpers import (ModelContentJsonInvalid,
+from local_agentic_triage.classifier import transport as classifier_transport
+from local_agentic_triage.classifier.transport import (ModelContentJsonInvalid,
     ModelEnvelopeJsonInvalid)
 from local_agentic_triage.classifier.resources import (CLASSIFY_OUTPUT_SCHEMA,
     SUMMARIZE_OUTPUT_SCHEMA, classify_prompt)
@@ -56,7 +56,7 @@ class ContentTests(unittest.TestCase):
     def test_summarize_and_classify_are_separate_requests(self):
         import local_agentic_triage.classifier.disposition as core
         mail=fit_to_context(parse(b'Date: Wed, 01 Jan 2025 12:00:00 +0100\nSubject: Synthetic\n\nbody',100),10000)
-        with patch.object(classifier_helpers,'chat_completion',side_effect=[
+        with patch.object(classifier_transport,'chat_completion',side_effect=[
                 {'summary':'Syntetyczne podsumowanie.'},{'destination':'leave'}]) as chat:
             summary=summarize(mail)
             self.assertEqual(summary,'Syntetyczne podsumowanie.')
@@ -72,7 +72,7 @@ class ContentTests(unittest.TestCase):
             '{"metadata": {"sent_date": "2025-01-01T12:00:00+01:00", "sender": "", "subject": "Synthetic"}, "body": "body"}}')
         self.assertEqual(json.loads(chat.call_args_list[1].args[0][1]['content'])['mail'],source)
 
-        with patch.object(classifier_helpers,'chat_completion',return_value={'destination':'archive'}) as chat:
+        with patch.object(classifier_transport,'chat_completion',return_value={'destination':'archive'}) as chat:
             self.assertEqual(classify(mail,'Syntetyczne podsumowanie.'),'archive')
         self.assertEqual(chat.call_count,1)
         self.assertEqual(chat.call_args.args[0][0]['content'],classify_prompt())
@@ -109,7 +109,7 @@ class ContentTests(unittest.TestCase):
     def test_classify_does_not_revalidate_summary(self):
         import local_agentic_triage.classifier.disposition as core
         mail=fit_to_context(parse(b'From: sender@example.invalid\n\nSynthetic',1000),10000)
-        with patch.object(classifier_helpers,'chat_completion',return_value={'destination':'archive'}), \
+        with patch.object(classifier_transport,'chat_completion',return_value={'destination':'archive'}), \
              patch.object(core,'_validate_summary',side_effect=AssertionError('redundant validation')):
             self.assertEqual(classify(mail,'Opis.'),'archive')
 
@@ -162,7 +162,7 @@ class ContentTests(unittest.TestCase):
     def test_context_bound_mail_keeps_model_state_private(self):
         mail=parse(b'From: sender@example.invalid\nSubject: Synthetic\n\nbody',1000)
         context_bound_mail=fit_to_context(mail,10000)
-        with patch.object(classifier_helpers,'chat_completion',side_effect=[
+        with patch.object(classifier_transport,'chat_completion',side_effect=[
                 {'summary':'Opis.'},{'destination':'leave'}]):
             classify(context_bound_mail,summarize(context_bound_mail))
         self.assertEqual({name for name in vars(context_bound_mail) if not name.startswith('_')},
@@ -184,11 +184,11 @@ class ContentTests(unittest.TestCase):
                 self.assertLess(len(value),200001)
                 self.assertTrue(value.endswith('[content truncated]'))
                 self.assertIs(getattr(context_bound_mail,field),getattr(mail,field))
-        with patch.object(classifier_helpers,'chat_completion') as chat, \
+        with patch.object(classifier_transport,'chat_completion') as chat, \
              self.assertRaisesRegex(ValueError,'mail payload size'):
             summarize(fit_to_context(mail,1))
         chat.assert_not_called()
-        with patch.object(classifier_helpers,'chat_completion') as chat, \
+        with patch.object(classifier_transport,'chat_completion') as chat, \
              self.assertRaisesRegex(ValueError,'mail payload size'):
             classify(fit_to_context(mail,1),'Opis.')
         chat.assert_not_called()
@@ -208,7 +208,7 @@ class ContentTests(unittest.TestCase):
         from local_agentic_triage.classifier import events
         mail=Mail(sender='s'*5000,sender_address='s'*5000,sent_date='2025-01-01T12:00:00+01:00',body='b'*20000,subject='t'*5000)
         context_bound_mail=fit_to_context(mail,10000)
-        with patch.object(classifier_helpers,'chat_completion',side_effect=[
+        with patch.object(classifier_transport,'chat_completion',side_effect=[
                 {'summary':'Opis.'},{'destination':'leave'},{'events':[]}]) as chat:
             classify(context_bound_mail,summarize(context_bound_mail))
             events.extract_events(context_bound_mail)

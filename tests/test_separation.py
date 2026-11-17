@@ -18,7 +18,7 @@ EVENT = {
 
 class SeparationTests(unittest.TestCase):
     def test_model_resources_have_one_explicit_public_owner(self):
-        from local_agentic_triage.classifier import disposition, events, helpers, resources
+        from local_agentic_triage.classifier import disposition, events, resources, transport
         expected = {
             'SUMMARIZE_OUTPUT_SCHEMA', 'CLASSIFY_OUTPUT_SCHEMA',
             'EXTRACT_EVENTS_OUTPUT_SCHEMA', 'IS_DUPLICATE_OUTPUT_SCHEMA',
@@ -26,11 +26,11 @@ class SeparationTests(unittest.TestCase):
             'extract_events_prompt', 'is_duplicate_prompt', 'complete_event_prompt',
         }
         self.assertEqual(set(resources.__all__), expected)
-        for module in (helpers, disposition, events):
+        for module in (transport, disposition, events):
             self.assertFalse(any(name.endswith('OUTPUT_SCHEMA') for name in vars(module)))
         for name in expected:
-            self.assertFalse(hasattr(helpers, name))
-        self.assertFalse(hasattr(helpers, 'response_schema'))
+            self.assertFalse(hasattr(transport, name))
+        self.assertFalse(hasattr(transport, 'response_schema'))
 
     def test_disposition_has_explicit_public_surface(self):
         from local_agentic_triage.classifier import disposition
@@ -49,7 +49,7 @@ class SeparationTests(unittest.TestCase):
                    if isinstance(node, (ast.Import, ast.ImportFrom))]
         self.assertFalse(any('local_agentic_triage.events' in item or
                              'local_agentic_triage.mail' in item for item in imports))
-        with patch.object(events.helpers, 'chat_completion_with_payload', side_effect=[
+        with patch.object(events.transport, 'chat_completion_with_payload', side_effect=[
                 {'outcome': 'existing'}, {'outcome': 'possible_duplicate'},
                 {'outcome': 'create'}]):
             self.assertIs(events.is_duplicate(EVENT, []), True)
@@ -100,10 +100,10 @@ class SeparationTests(unittest.TestCase):
         self.assertEqual(strict_json('{"value":1}'), {'value': 1})
         with self.assertRaisesRegex(ValueError, 'duplicate key'):
             strict_json('{"value":1,"value":2}')
-        helpers = (PACKAGE / 'classifier/helpers.py').read_text(encoding='utf-8')
+        transport = (PACKAGE / 'classifier/transport.py').read_text(encoding='utf-8')
         imap = (PACKAGE / 'mail/imap.py').read_text(encoding='utf-8')
-        self.assertNotIn('def strict_json', helpers)
-        self.assertNotIn('classifier.helpers import strict_json', imap)
+        self.assertNotIn('def strict_json', transport)
+        self.assertNotIn('classifier.transport import strict_json', imap)
 
 
 if __name__ == '__main__':

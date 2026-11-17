@@ -4,7 +4,7 @@ import urllib.error
 from unittest.mock import MagicMock, Mock, patch
 
 from helpers import make_config
-from local_agentic_triage.classifier.helpers import ModelContentJsonInvalid
+from local_agentic_triage.classifier.transport import ModelContentJsonInvalid
 from local_agentic_triage.common.diagnostics import CommandError
 from local_agentic_triage.classifier.input import ContextBoundMail
 from local_agentic_triage.mail.pipeline import diagnose, poll
