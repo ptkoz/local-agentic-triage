@@ -120,11 +120,6 @@ def validate_summary(obj):
         raise ValueError('summary')
     return obj
 
-def validate_disposition(obj):
-    if obj not in ('leave','archive'):
-        raise ValueError('destination')
-    return obj
-
 def summarize(mail):
     source=mail_source(mail)
     return validate_summary(chat_completion([

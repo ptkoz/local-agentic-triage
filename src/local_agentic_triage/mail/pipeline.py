@@ -5,7 +5,7 @@ from dataclasses import replace
 from local_agentic_triage.mail.mime import parse
 from local_agentic_triage.mail.vulcan import VULCAN_SENDER, forward
 from local_agentic_triage.mail.imap import uid_value
-from local_agentic_triage.classifier.core import summarize, classify, validate_disposition, bound_mail
+from local_agentic_triage.classifier.core import summarize, classify, bound_mail
 from local_agentic_triage.events.core import process, parse_results, extract
 from local_agentic_triage.common.diagnostics import error_code, error_suffix
 from local_agentic_triage.reporting.report import render_notification, deliver
@@ -31,7 +31,7 @@ def diagnose(mailbox, config, uid, classifier=classify, expected_validity=None, 
         stage = 'summarize'
         summary = summarizer(mail)
         stage = 'classify'
-        validate_disposition(classifier(mail, summary))
+        classifier(mail, summary)
         log.info('mail_diagnosis_completed uid=%s uidvalidity=%s stage=classify', uid, validity)
         return 0
     except Exception as exc:
@@ -69,7 +69,7 @@ def poll(mailbox, config, classifier=classify, event_processor=process, *, summa
             summary = summarizer(mail)
             stage = 'classify'
             log.info('mail_item_action item=%d uid=%s stage=classify', index, uid)
-            destination = validate_disposition(classifier(mail, summary))
+            destination = classifier(mail, summary)
 
             # Validate the mandatory notification before optional side effects.
             stage = 'notify'

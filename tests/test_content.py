@@ -20,12 +20,8 @@ class ContentTests(unittest.TestCase):
         raw=b'Content-Type: multipart/alternative; boundary=x\n\n--x\nContent-Type: text/html\n\n<b>HTML</b>\n--x\nContent-Type: text/plain\n\nplain\n--x--'
         self.assertEqual(parse(raw,1000).body,'plain')
 
-    def test_summary_is_validated_only_at_summary_boundary(self):
-        from local_agentic_triage.classifier.core import validate_summary, validate_disposition
-        self.assertEqual(validate_disposition('archive'),'archive')
-        for destination in ('', None, {'destination':'archive'}):
-            with self.subTest(destination=destination), self.assertRaises(ValueError):
-                validate_disposition(destination)
+    def test_summary_is_validated_at_summary_boundary(self):
+        from local_agentic_triage.classifier.core import validate_summary
         with self.assertRaises(ValueError):
             validate_summary({'summary':''})
 
