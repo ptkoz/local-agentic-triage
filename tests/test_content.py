@@ -2,7 +2,7 @@ import unittest
 import inspect
 from pathlib import Path
 from local_agentic_triage.mail.mime import parse
-from local_agentic_triage.mail.model import PreparedMail, prepare
+from local_agentic_triage.classifier.input import ContextBoundMail, fit_to_context
 from local_agentic_triage.classifier.core import classify, summarize
 from local_agentic_triage.classifier import helpers as classifier_helpers
 from local_agentic_triage.classifier.helpers import (CLASSIFICATION_SCHEMA,
@@ -45,7 +45,7 @@ class ContentTests(unittest.TestCase):
             def __exit__(self,*a): pass
             def read(self,n=None): return json.dumps({'choices':[{'finish_reason':'length','message':{'content':'{}'}}]}).encode()
         with patch('urllib.request.OpenerDirector.open',return_value=Response()) as call:
-            with self.assertRaises(ValueError): summarize(prepare(parse(b'Date: today\n\nbody',100))[0])
+            with self.assertRaises(ValueError): summarize(fit_to_context(parse(b'Date: today\n\nbody',100),10000))
             req=call.call_args.args[0]; data=json.loads(req.data)
             self.assertEqual(req.full_url,'http://127.0.0.1:12434/engines/v1/chat/completions')
             self.assertEqual(data['model'],'docker.io/ai/ministral3-mail-8b:16k')
@@ -57,7 +57,7 @@ class ContentTests(unittest.TestCase):
 
     def test_summarize_and_classify_are_separate_requests(self):
         import local_agentic_triage.classifier.core as core
-        mail=prepare(parse(b'Date: Wed, 01 Jan 2025 12:00:00 +0100\nSubject: Synthetic\n\nbody',100))[0]
+        mail=fit_to_context(parse(b'Date: Wed, 01 Jan 2025 12:00:00 +0100\nSubject: Synthetic\n\nbody',100),10000)
         with patch.object(classifier_helpers,'chat_completion',side_effect=[
                 {'summary':'Syntetyczne podsumowanie.'},{'destination':'leave'}]) as chat:
             summary=summarize(mail)
@@ -83,7 +83,7 @@ class ContentTests(unittest.TestCase):
     def test_http_requests_serialize_exact_source_without_recipient(self):
         raw=(b'From: =?utf-8?q?Zo=C5=BCa?= <sender@example.invalid>\nTo: recipient@example.invalid\n'
              b'Subject: Synthetic\nDate: Wed, 01 Jan 2025 12:00:00 +0100\n\nSynthetic body')
-        mail=prepare(parse(raw,1000))[0]
+        mail=fit_to_context(parse(raw,1000),10000)
         class Response:
             def __init__(self,content): self.content=content
             def __enter__(self): return self
@@ -110,7 +110,7 @@ class ContentTests(unittest.TestCase):
 
     def test_classify_does_not_revalidate_summary(self):
         import local_agentic_triage.classifier.core as core
-        mail=prepare(parse(b'From: sender@example.invalid\n\nSynthetic',1000))[0]
+        mail=fit_to_context(parse(b'From: sender@example.invalid\n\nSynthetic',1000),10000)
         with patch.object(classifier_helpers,'chat_completion',return_value={'destination':'archive'}), \
              patch.object(core,'validate_summary',side_effect=AssertionError('redundant validation')):
             self.assertEqual(classify(mail,'Opis.'),'archive')
@@ -121,7 +121,7 @@ class ContentTests(unittest.TestCase):
             def __enter__(self): return self
             def __exit__(self,*a): pass
             def read(self,n=None): return self.payload
-        mail=prepare(parse(b'Date: Wed, 01 Jan 2025 12:00:00 +0100\n\nbody',100))[0]
+        mail=fit_to_context(parse(b'Date: Wed, 01 Jan 2025 12:00:00 +0100\n\nbody',100),10000)
         with patch('urllib.request.OpenerDirector.open',return_value=Response(b'not json')):
             with self.assertRaises(ModelEnvelopeJsonInvalid): summarize(mail)
         for envelope in ({}, {'choices':[]}, {'choices':[{}]},
@@ -152,30 +152,48 @@ class ContentTests(unittest.TestCase):
     def test_model_input_bounds_every_mail_field(self):
         from types import SimpleNamespace
         mail=SimpleNamespace(sent_date='d'*200001,sender='s'*200001,subject='t'*200001,body='b'*200001)
-        prepared,truncated=prepare(mail)
-        payload={field:getattr(prepared,field) for field in ('sent_date','sender','subject','body')}
+        context_bound_mail=fit_to_context(mail,10000)
+        self.assertIsInstance(context_bound_mail,ContextBoundMail)
+        self.assertIs(context_bound_mail.mail,mail)
+        payload={**context_bound_mail.source['metadata'],'body':context_bound_mail.source['body']}
         encoded=json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode()
         self.assertLessEqual(len(encoded),10000)
         for field in ('sent_date','sender','subject','body'):
             self.assertLess(len(payload[field]),200001)
             self.assertTrue(payload[field].endswith('[content truncated]'))
-        self.assertEqual(truncated,('sent_date','sender','subject','body'))
-        source=prepared.source
+        source=context_bound_mail.source
         self.assertEqual(set(source),{'metadata','body'})
         self.assertEqual(set(source['metadata']),{'sent_date','sender','subject'})
         self.assertLessEqual(len(json.dumps(source,ensure_ascii=False,separators=(',',':')).encode()),10000)
 
-    def test_prepared_mail_is_frozen_and_precomputes_source_once(self):
+    def test_context_bound_mail_keeps_source_identity_and_caches_representation(self):
         mail=parse(b'From: sender@example.invalid\nSubject: Synthetic\n\nbody',1000)
-        prepared,truncated=prepare(mail)
-        self.assertIsInstance(prepared,PreparedMail)
-        self.assertEqual(truncated,())
-        self.assertEqual(prepared.source_json,
+        context_bound_mail=fit_to_context(mail,10000)
+        self.assertIsInstance(context_bound_mail,ContextBoundMail)
+        self.assertIs(context_bound_mail.mail,mail)
+        self.assertNotIsInstance(context_bound_mail,tuple)
+        self.assertIs(context_bound_mail.source,context_bound_mail.source)
+        self.assertIs(context_bound_mail.source_json,context_bound_mail.source_json)
+        self.assertEqual(context_bound_mail.source_json,
             '{"metadata":{"sent_date":"","sender":"sender@example.invalid","subject":"Synthetic"},"body":"body"}')
-        self.assertEqual(json.loads(prepared.source_json),prepared.source)
+        self.assertEqual(json.loads(context_bound_mail.source_json),context_bound_mail.source)
         with self.assertRaises((AttributeError,TypeError)):
-            prepared.sender='changed'
+            setattr(context_bound_mail,'mail',mail)
         with self.assertRaises(TypeError):
-            prepared.source['body']='changed'
+            context_bound_mail.source['body']='changed'
         with self.assertRaises(TypeError):
-            prepared.source['metadata']['sender']='changed'
+            context_bound_mail.source['metadata']['sender']='changed'
+
+    def test_context_fitting_is_lazy_cached_and_fail_closed_at_supplied_limit(self):
+        from local_agentic_triage.classifier import input as classifier_input
+        mail=parse(b'From: sender@example.invalid\nSubject: Synthetic\n\nbody',1000)
+        with patch.object(classifier_input,'_bounded_string',
+                          wraps=classifier_input._bounded_string) as bound:
+            context_bound_mail=fit_to_context(mail,10000)
+            bound.assert_not_called()
+            context_bound_mail.source_json
+            context_bound_mail.source
+            context_bound_mail.source_json
+        self.assertEqual(bound.call_count,4)
+        with self.assertRaisesRegex(ValueError,'mail payload size'):
+            fit_to_context(mail,1).source_json

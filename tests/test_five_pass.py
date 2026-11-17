@@ -5,11 +5,11 @@ from local_agentic_triage.classifier import core
 from local_agentic_triage.classifier import helpers as classifier_helpers
 from local_agentic_triage.classifier.helpers import disposition_prompt
 from local_agentic_triage.mail.mime import parse
-from local_agentic_triage.mail.model import prepare
+from local_agentic_triage.classifier.input import fit_to_context
 
 class FivePassTests(unittest.TestCase):
     def test_destination_pass_returns_only_disposition(self):
-        mail=prepare(parse(b'From: synthetic@example.invalid\n\nbody',1000))[0]
+        mail=fit_to_context(parse(b'From: synthetic@example.invalid\n\nbody',1000),10000)
         with patch.object(classifier_helpers,'chat_completion',return_value={'destination':'leave'}) as chat:
             self.assertEqual(core.classify(mail,'Synthetic summary'),'leave')
         messages,schema=chat.call_args.args

@@ -205,8 +205,8 @@ class ArchitectureTests(unittest.TestCase):
 
     def test_extraction_only_checks_closed_structure_and_types(self):
         from local_agentic_triage.mail.mime import parse
-        from local_agentic_triage.mail.model import prepare
-        mail=prepare(parse(b'From: synthetic@example.invalid\n\nbody',1000))[0]
+        from local_agentic_triage.classifier.input import fit_to_context
+        mail=fit_to_context(parse(b'From: synthetic@example.invalid\n\nbody',1000),10000)
         candidate={key:None for key in EVENT}
         for value in (candidate,EVENT|{'end':'bad','title':'','location':''}):
             with patch.object(core,'chat_completion',return_value={'events':[value]}):

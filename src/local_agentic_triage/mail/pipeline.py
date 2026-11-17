@@ -3,7 +3,7 @@ import json
 from email.utils import parseaddr
 from dataclasses import replace
 from local_agentic_triage.mail.mime import parse
-from local_agentic_triage.mail.model import prepare
+from local_agentic_triage.classifier.input import MAIL_PAYLOAD_BYTES, fit_to_context
 from local_agentic_triage.mail.vulcan import VULCAN_SENDER, forward
 from local_agentic_triage.mail.imap import uid_value
 from local_agentic_triage.classifier.core import summarize, classify
@@ -26,13 +26,11 @@ def diagnose(mailbox, config, uid, classifier=classify, expected_validity=None, 
         mail = parse(mailbox.raw(uid), config.max_mail_bytes)
         if not mail.sent_date:
             mail = replace(mail, sent_date=mailbox.internal_date(uid))
-        mail, truncated = prepare(mail)
-        if truncated:
-            log.info('mail_content_truncated uid=%s fields=%s', uid, ','.join(truncated))
+        context_bound_mail = fit_to_context(mail, MAIL_PAYLOAD_BYTES)
         stage = 'summarize'
-        summary = summarizer(mail)
+        summary = summarizer(context_bound_mail)
         stage = 'classify'
-        classifier(mail, summary)
+        classifier(context_bound_mail, summary)
         log.info('mail_diagnosis_completed uid=%s uidvalidity=%s stage=classify', uid, validity)
         return 0
     except Exception as exc:
@@ -62,15 +60,13 @@ def poll(mailbox, config, classifier=classify, event_processor=process, *, summa
             mail = parse(raw, config.max_mail_bytes)
             if not mail.sent_date:
                 mail = replace(mail, sent_date=mailbox.internal_date(uid))
-            mail, truncated = prepare(mail)
-            if truncated:
-                log.info('mail_content_truncated uid=%s fields=%s', uid, ','.join(truncated))
+            context_bound_mail = fit_to_context(mail, MAIL_PAYLOAD_BYTES)
             stage = 'summarize'
             log.info('mail_item_action item=%d uid=%s stage=summarize', index, uid)
-            summary = summarizer(mail)
+            summary = summarizer(context_bound_mail)
             stage = 'classify'
             log.info('mail_item_action item=%d uid=%s stage=classify', index, uid)
-            destination = classifier(mail, summary)
+            destination = classifier(context_bound_mail, summary)
 
             # Validate the mandatory notification before optional side effects.
             stage = 'notify'
@@ -87,7 +83,7 @@ def poll(mailbox, config, classifier=classify, event_processor=process, *, summa
             # Optional: Calendar enrichment (best-effort)
             log.info('mail_item_action item=%d uid=%s stage=events', index, uid)
             try:
-                extracted = extractor(mail)
+                extracted = extractor(context_bound_mail)
                 event_result = event_processor(extracted, config)
                 event_result = parse_results(json.dumps(event_result), extracted, processed=True)
                 for entry in event_result['results']:

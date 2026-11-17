@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, Mock, patch
 from helpers import make_config
 from local_agentic_triage.classifier.helpers import ModelContentJsonInvalid
 from local_agentic_triage.common.diagnostics import CommandError
-from local_agentic_triage.mail.model import PreparedMail
+from local_agentic_triage.classifier.input import ContextBoundMail
 from local_agentic_triage.mail.pipeline import diagnose, poll
 
 
@@ -51,13 +51,13 @@ class PipelineTests(unittest.TestCase):
 
         self.assertEqual(order, ['summarize', 'classify'])
         classifier.assert_called_once_with(summarizer.call_args.args[0], 'Synthetic summary.')
-        self.assertIsInstance(summarizer.call_args.args[0], PreparedMail)
+        self.assertIsInstance(summarizer.call_args.args[0], ContextBoundMail)
         self.assertIs(self.extractor.call_args.args[0], summarizer.call_args.args[0])
         self.assertIn('Synthetic summary.', runner.call_args.kwargs['input'])
         box.archive.assert_called_once_with('9')
 
-    def test_poll_prepares_once_and_shares_one_object_with_all_model_stages(self):
-        from local_agentic_triage.mail.model import prepare as real_prepare
+    def test_poll_fits_once_and_shares_one_object_with_all_model_stages(self):
+        from local_agentic_triage.classifier.input import fit_to_context as real_fit_to_context
         box = Mock(validity='77')
         box.candidates.return_value = ['9']
         box.raw.return_value = b'From: a@b.invalid\n\nbody'
@@ -65,28 +65,35 @@ class PipelineTests(unittest.TestCase):
         summarizer = Mock(return_value='Synthetic summary.')
         classifier = Mock(return_value='archive')
         extractor = Mock(return_value=[])
-        with patch('local_agentic_triage.mail.pipeline.prepare', wraps=real_prepare) as preparation, \
+        with patch('local_agentic_triage.mail.pipeline.fit_to_context', wraps=real_fit_to_context) as fitting, \
              self.assertLogs('local_agentic_triage', level='INFO'):
             self.assertEqual(poll(box, make_config(), classifier, summarizer=summarizer,
                                   extractor=extractor, runner=_runner_ok()), 0)
-        preparation.assert_called_once()
-        prepared=summarizer.call_args.args[0]
-        self.assertIs(classifier.call_args.args[0],prepared)
-        self.assertIs(extractor.call_args.args[0],prepared)
+        fitting.assert_called_once()
+        context_bound_mail=summarizer.call_args.args[0]
+        self.assertIs(classifier.call_args.args[0],context_bound_mail)
+        self.assertIs(extractor.call_args.args[0],context_bound_mail)
 
-    def test_diagnose_prepares_once_and_shares_one_object(self):
-        from local_agentic_triage.mail.model import prepare as real_prepare
+    def test_diagnose_fits_once_and_shares_one_object(self):
+        from local_agentic_triage.classifier.input import fit_to_context as real_fit_to_context
         box = Mock(validity='77')
         box.raw.return_value = b'From: a@b.invalid\n\nbody'
         box.internal_date.return_value = '2026-10-31T01:27:00+01:00'
         summarizer = Mock(return_value='Synthetic summary.')
         classifier = Mock(return_value='archive')
-        with patch('local_agentic_triage.mail.pipeline.prepare', wraps=real_prepare) as preparation, \
+        with patch('local_agentic_triage.mail.pipeline.fit_to_context', wraps=real_fit_to_context) as fitting, \
              self.assertLogs('local_agentic_triage', level='INFO'):
             self.assertEqual(diagnose(box, make_config(), '9', classifier,
                                       summarizer=summarizer), 0)
-        preparation.assert_called_once()
+        fitting.assert_called_once()
         self.assertIs(classifier.call_args.args[0],summarizer.call_args.args[0])
+
+    def test_pipeline_names_the_fitted_stage_context_bound_mail(self):
+        import inspect
+        import local_agentic_triage.mail.pipeline as pipeline
+        source=inspect.getsource(pipeline)
+        self.assertGreaterEqual(source.count('context_bound_mail = fit_to_context('),2)
+        self.assertNotIn('mail_content_truncated',source)
 
     def test_mandatory_summary_for_leave(self):
         """Every mail, including leave, must produce a non-empty summary."""

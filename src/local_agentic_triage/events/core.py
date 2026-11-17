@@ -3,7 +3,7 @@ from datetime import datetime
 import json
 from local_agentic_triage.classifier.helpers import (CONTEXT_TOKENS, MAX_TOKENS,
     chat_completion, strict_json, timestamp, response_schema)
-from local_agentic_triage.mail.model import PreparedMail
+from local_agentic_triage.classifier.input import ContextBoundMail
 
 def prompt(): return files(__package__).joinpath('duplicate.md').read_text(encoding='utf-8')
 
@@ -160,9 +160,9 @@ def extraction_prompt():
 
 EXTRACTION_SCHEMA=response_schema(__package__,'extraction')
 
-def extract(prepared_mail: PreparedMail):
+def extract(context_bound_mail: ContextBoundMail):
     result=chat_completion([{'role':'system','content':extraction_prompt()},
-                            {'role':'user','content':prepared_mail.source_json}],EXTRACTION_SCHEMA)
+                            {'role':'user','content':context_bound_mail.source_json}],EXTRACTION_SCHEMA)
     if not isinstance(result,dict) or set(result)!={'events'}: raise ValueError('event_extraction_keys')
     validate_events(result['events'])
     return result['events']

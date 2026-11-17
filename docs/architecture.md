@@ -3,13 +3,14 @@
 ## Component responsibilities
 
 - `common` owns configuration and process locking.
-- `classifier` owns local-model communication, summary generation, and disposition
-  classification. Summary generation returns a nonempty string; disposition
-  classification accepts that summary and returns only `archive` or `leave`.
+- `classifier` owns fitting source mail to the model context, local-model
+  communication, summary generation, and disposition classification. Summary
+  generation returns a nonempty string; disposition classification accepts that
+  summary and returns only `archive` or `leave`.
 - `events` owns event extraction, duplicate assessment, completion, validation,
   and the Calendar boundary.
-- `mail` owns mail access, MIME parsing, one-time preparation of the bounded model
-  representation, and pipeline orchestration.
+- `mail` owns mail access, MIME parsing, the immutable source mail, and pipeline
+  orchestration.
 - `reporting` owns per-mail notification rendering and Discord delivery.
 - Other input sources remain separate pipelines rather than plugins in the mail
   flow.
@@ -24,9 +25,9 @@ revalidates mailbox identity before reads and dispositions so a recreated
 mailbox or missing message fails closed. `Seen` is not a processing checkpoint;
 messages selected for processing exclude those already marked `Flagged`.
 
-Raw mail remains local. MIME parsing selects the useful message text and bounds
-all model-facing data. Invalid mail, failed classification, or failed mandatory
-notification leaves the message eligible for a later retry.
+Raw mail remains local. MIME parsing selects the useful message text, and the
+classifier bounds all model-facing data. Invalid mail, failed classification,
+or failed mandatory notification leaves the message eligible for a later retry.
 
 ## Per-mail flow
 
@@ -95,11 +96,9 @@ successfully before the mailbox is changed.
 - `leave` marks the message `Flagged` and keeps it in the Inbox.
 - `archive` moves the message to Archive without changing its read state.
 
-There is no scheduled digest, report database, queue, reconciliation process,
-or durable delivery acknowledgement. If delivery succeeds but the process
-fails before disposition completes, a later retry may send the notification
-again. This at-least-once behavior is accepted in exchange for a stateless
-pipeline.
+The pipeline is stateless and delivery is at least once. If delivery succeeds
+but the process fails before disposition completes, a later retry may send the
+notification again.
 
 ## eduVULCAN handoff
 
