@@ -5,7 +5,7 @@ import re
 import subprocess
 from urllib.parse import quote
 
-from local_agentic_triage.classifier.helpers import strict_json
+from local_agentic_triage.common.json import strict_json
 from local_agentic_triage.common.diagnostics import CommandError, error_code
 
 

@@ -16,7 +16,7 @@ def _runner_ok():
 
 class PipelineTests(unittest.TestCase):
     def setUp(self):
-        patcher = patch('local_agentic_triage.mail.pipeline.extract', return_value=[])
+        patcher = patch('local_agentic_triage.mail.pipeline.extract_events', return_value=[])
         self.extractor = patcher.start()
         self.addCleanup(patcher.stop)
         self.summarizer = Mock(return_value='summary')
@@ -407,7 +407,7 @@ class PipelineTests(unittest.TestCase):
         box.leave.assert_not_called()
 
     def test_event_model_http_failure_is_sanitized_optional_enrichment(self):
-        from local_agentic_triage.events.core import process
+        from local_agentic_triage.mail.event_pipeline import process_events
         event = {'title': 'PRIVATE EVENT', 'start': '2099-12-01', 'end': None, 'date_note': None, 'location': None}
         box = Mock(validity='77')
         box.candidates.return_value = ['9']
@@ -421,7 +421,7 @@ class PipelineTests(unittest.TestCase):
              patch('subprocess.run', side_effect=AssertionError('decision subprocess')), \
              patch('urllib.request.OpenerDirector.open', side_effect=urllib.error.URLError('PRIVATE_SENTINEL')), \
              self.assertLogs('local_agentic_triage', level='ERROR') as logs:
-            self.assertEqual(self.run_poll(box, make_config(), classifier, process, runner=runner), 0)
+            self.assertEqual(self.run_poll(box, make_config(), classifier, process_events, runner=runner), 0)
         output = '\n'.join(logs.output)
         self.assertIn('mail_event_failed uid=9 error=model_request_failed', output)
         self.assertNotIn('returncode=', output)
@@ -449,46 +449,6 @@ class PipelineTests(unittest.TestCase):
         for private in ('PRIVATE EVENT', 'private subject', 'private body', 'secret@example.invalid', '2026-11-01'):
             self.assertNotIn(private, output)
         box.leave.assert_called_once_with('9')
-
-    def test_malformed_event_results_are_absorbed_and_disposition_continues(self):
-        event = {'title': 'PRIVATE EVENT', 'start': '2099-12-01', 'end': None, 'date_note': None, 'location': None}
-        malformed = (
-            None, Mock(), [],
-            {'status': 'ok', 'results': []},
-            {'status': 'ok', 'results': [{'index': 0, 'outcome': 'existing', 'reason': None},
-                                          {'index': 0, 'outcome': 'existing', 'reason': None}]},
-            {'status': 'ok', 'results': [{'index': 1, 'outcome': 'existing', 'reason': None}]},
-            {'status': 'ok', 'results': [{'index': 0, 'outcome': 'skipped', 'reason': None}]},
-            {'status': 'error', 'results': [{'index': 0, 'outcome': 'existing', 'reason': None}]},
-        )
-        for destination in ('leave', 'archive'):
-            for result in malformed:
-                with self.subTest(destination=destination, result_type=type(result).__name__):
-                    box = Mock(validity='77')
-                    box.candidates.return_value = ['9']
-                    box.source_key.return_value = 'key'
-                    box.raw.return_value = b'From: private@example.invalid\n\nprivate body'
-                    box.internal_date.return_value = '2026-10-31T01:27:00+01:00'
-                    summary = 'synthetic' if destination == 'archive' else 'synthetic leave'
-                    self.extractor.return_value = [event]
-                    self.summarizer.return_value = summary
-                    classifier = Mock(return_value=destination)
-                    runner = _runner_ok()
-                    with self.assertLogs('local_agentic_triage', level='INFO') as logs:
-                        self.assertEqual(self.run_poll(box, make_config(), classifier, Mock(return_value=result), runner=runner), 0)
-                    output = '\n'.join(logs.output)
-                    self.assertNotIn('mail_event_result', output)
-                    self.assertEqual(output.count('mail_event_failed'), 1)
-                    self.assertIn('mail_event_failed uid=9 error=', output)
-                    self.assertNotIn('mail_item_failed', output)
-                    for private in ('PRIVATE EVENT', 'private@example.invalid', 'private body', '2099-12-01'):
-                        self.assertNotIn(private, output)
-                    if destination == 'leave':
-                        box.leave.assert_called_once_with('9')
-                        box.archive.assert_not_called()
-                    else:
-                        box.archive.assert_called_once_with('9')
-                        box.leave.assert_not_called()
 
     def test_invalid_internal_date_stops_before_private_processing(self):
         box = Mock(validity='77')

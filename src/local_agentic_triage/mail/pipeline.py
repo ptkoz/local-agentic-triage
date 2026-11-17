@@ -1,12 +1,12 @@
 import logging
-import json
 from dataclasses import replace
 from local_agentic_triage.mail.mime import parse
 from local_agentic_triage.classifier.input import MAIL_PAYLOAD_BYTES, fit_to_context
 from local_agentic_triage.mail.vulcan import VULCAN_SENDER, delegate_to_vulcan_handler
 from local_agentic_triage.mail.imap import uid_value
-from local_agentic_triage.classifier.core import summarize, classify
-from local_agentic_triage.events.core import process, parse_results, extract
+from local_agentic_triage.classifier.disposition import summarize, classify
+from local_agentic_triage.classifier.events import extract_events
+from local_agentic_triage.mail.event_pipeline import process_events
 from local_agentic_triage.common.diagnostics import error_code, error_suffix
 from local_agentic_triage.reporting.report import render_notification, deliver
 
@@ -38,9 +38,9 @@ def diagnose(mailbox, config, uid, classifier=classify, expected_validity=None, 
         return 1
 
 
-def poll(mailbox, config, classifier=classify, event_processor=process, *, summarizer=summarize,
+def poll(mailbox, config, classifier=classify, event_processor=process_events, *, summarizer=summarize,
          extractor=None, runner=None):
-    extractor = extract if extractor is None else extractor
+    extractor = extract_events if extractor is None else extractor
     failures = 0; completed = 0
     log.info('mail_poll_started')
     try:
@@ -84,7 +84,6 @@ def poll(mailbox, config, classifier=classify, event_processor=process, *, summa
             try:
                 extracted = extractor(context_bound_mail)
                 event_result = event_processor(extracted, config)
-                event_result = parse_results(json.dumps(event_result), extracted, processed=True)
                 for entry in event_result['results']:
                     log.info('mail_event_result uid=%s index=%d outcome=%s reason=%s',
                              uid, entry['index'], entry['outcome'], entry['reason'])

@@ -2,15 +2,17 @@
 
 ## Component responsibilities
 
-- `common` owns configuration and process locking.
+- `common` owns configuration, strict JSON decoding, and process locking.
 - `classifier` owns fitting source mail to the model context, local-model
-  communication, summary generation, and disposition classification. Summary
-  generation returns a nonempty string; disposition classification accepts that
-  summary and returns only `archive` or `leave`.
-- `events` owns event extraction, duplicate assessment, completion, validation,
-  and the Calendar boundary.
+  communication, summary generation, disposition classification, event
+  extraction, boolean duplicate assessment, and authorized event completion.
+  Summary generation returns a nonempty string; disposition classification
+  accepts that summary and returns only `archive` or `leave`.
+- `events` owns only the configured Calendar boundary: lookup normalization,
+  independent input validation, canonicalization, horizon checks, creation, and
+  readback verification.
 - `mail` owns mail access, MIME parsing, the immutable source mail, and pipeline
-  orchestration.
+  orchestration, including sequential per-candidate event processing.
 - `reporting` owns per-mail notification rendering and Discord delivery.
 - Other input sources remain separate pipelines rather than plugins in the mail
   flow.
@@ -75,8 +77,10 @@ mail disposition path.
 
 Event candidates are processed sequentially. Each candidate is compared with a
 fresh view of the configured Calendar before any creation decision, so a
-verified creation is visible to later candidates from the same mail. Duplicate
-or ambiguous candidates are skipped without stopping the remaining candidates.
+verified creation is visible to later candidates from the same mail. The model's
+`existing` and `possible_duplicate` outcomes both become one boolean duplicate
+decision and one `duplicate` pipeline result; duplicates are skipped without
+stopping the remaining candidates.
 
 Only a complete, validated event may be created. Eligibility is determined from
 the event end, not its start: timed events must end more than 72 elapsed hours

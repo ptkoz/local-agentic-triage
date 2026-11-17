@@ -1,8 +1,8 @@
 from importlib.resources import files
-from datetime import date, datetime
 import json
-import re
 import urllib.request
+
+from local_agentic_triage.common.json import strict_json
 
 ENDPOINT='http://127.0.0.1:12434/engines/v1/chat/completions'
 MODEL='docker.io/ai/ministral3-mail-8b:16k'
@@ -29,26 +29,6 @@ class ModelContentJsonInvalid(ValueError):
 
 def compact_json(value):
     return json.dumps(value,ensure_ascii=False,separators=(',',':'))
-
-
-def strict_json(text):
-    def pairs(items):
-        obj={}
-        for key,value in items:
-            if key in obj: raise ValueError('duplicate key')
-            obj[key]=value
-        return obj
-    return json.loads(text,object_pairs_hook=pairs,parse_constant=lambda _: (_ for _ in ()).throw(ValueError('constant')))
-
-
-def timestamp(value):
-    if value is None: return
-    if not isinstance(value,str): raise ValueError('date type')
-    if re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}',value): date.fromisoformat(value)
-    else:
-        if not re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(?::[0-9]{2}(?:\.[0-9]+)?)?(?:Z|[+-][0-9]{2}:[0-9]{2})',value): raise ValueError('date format')
-        dt=datetime.fromisoformat(value)
-        if 'T' not in value or dt.tzinfo is None: raise ValueError('date timezone')
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):

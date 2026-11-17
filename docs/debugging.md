@@ -98,8 +98,10 @@ then receives separate summary and bounded-mail fields and returns only the disp
 Sparse extraction independently receives bounded mail JSON and returns complete
 title/start/end/date_note/location candidates. After start validation and nearby
 lookup, duplicate checking sees each extracted event unchanged plus minimal nearby
-title/start/end/all_day/location rows; it returns existing, possible_duplicate, or
-create. A create candidate enters completion with all extracted fields unchanged.
+title/start/end/all_day/location rows. The frozen model schema still returns
+existing, possible_duplicate, or create; `classifier/events.py` maps the first
+two to boolean true and create to false. A false candidate enters completion
+with all extracted fields unchanged.
 Completion returns one full event and is not allowed to alter directly supplied
 values or invent a location. Python validates each completed event's structure,
 authorization, interval, and temporal eligibility immediately before its individual
@@ -116,7 +118,7 @@ errors remain fatal and retryable.
 
 Older builds logged both decoder failures as `json_decode_error`. That legacy code alone is ambiguous: it proves strict JSON decoding failed but not which decoder failed. Use the read-only diagnostic command on the current build. If replay succeeds, report that the historical decoder location cannot be proven from legacy logs; do not infer it or claim a root cause from private output.
 
-Before trusting a result, compare the installed zipapp with the reviewed repository version or confirm the deployed commit. The implementation in `classifier/core.py`, `classifier/helpers.py`, `classifier/input.py`, `mail/pipeline.py`, and `mail/imap.py` is normative documentation for the exact boundaries above.
+Before trusting a result, compare the installed zipapp with the reviewed repository version or confirm the deployed commit. The implementation in `classifier/disposition.py`, `classifier/events.py`, `classifier/helpers.py`, `classifier/input.py`, `mail/event_pipeline.py`, `events/calendar.py`, `mail/pipeline.py`, and `mail/imap.py` is normative documentation for the exact boundaries above.
 
 ## Reporting an investigation
 

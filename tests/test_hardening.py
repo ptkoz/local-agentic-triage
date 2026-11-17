@@ -1,7 +1,7 @@
 import json
 import unittest
 from unittest.mock import Mock,patch
-from local_agentic_triage.classifier.core import classify,summarize
+from local_agentic_triage.classifier.disposition import classify,summarize
 from local_agentic_triage.mail.mime import parse
 from local_agentic_triage.classifier.input import fit_to_context
 from local_agentic_triage.common.config import load

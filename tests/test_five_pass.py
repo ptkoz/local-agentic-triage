@@ -1,7 +1,7 @@
 import json
 import unittest
 from unittest.mock import patch, Mock
-from local_agentic_triage.classifier import core
+from local_agentic_triage.classifier import disposition as core
 from local_agentic_triage.classifier import helpers as classifier_helpers
 from local_agentic_triage.classifier.helpers import disposition_prompt
 from local_agentic_triage.mail.mime import parse
@@ -44,7 +44,7 @@ class FivePassTests(unittest.TestCase):
 
 
     def test_all_five_schemas_are_closed_and_complete(self):
-        from local_agentic_triage.events import core as events
+        from local_agentic_triage.classifier import events
         def check(schema):
             if schema.get('type')=='object':
                 self.assertIs(schema['additionalProperties'],False)
@@ -52,7 +52,7 @@ class FivePassTests(unittest.TestCase):
                 for child in schema['properties'].values(): check(child)
             if schema.get('type')=='array': check(schema['items'])
         for schema in (classifier_helpers.CLASSIFICATION_SCHEMA,classifier_helpers.SUMMARY_SCHEMA,
-                       events.EXTRACTION_SCHEMA,events.DUPLICATE_SCHEMA,events.COMPLETION_SCHEMA):
+                       events._EXTRACTION_SCHEMA,events._DUPLICATE_SCHEMA,events._COMPLETION_SCHEMA):
             self.assertIs(schema['json_schema']['strict'],True)
             check(schema['json_schema']['schema'])
 
@@ -60,7 +60,8 @@ class FivePassTests(unittest.TestCase):
     def test_each_model_failure_has_the_correct_disposition_boundary(self):
         from helpers import make_config
         from test_events import decision_response
-        from local_agentic_triage.events import core as events
+        from local_agentic_triage.classifier import events
+        from local_agentic_triage.mail.event_pipeline import process_events
         from local_agentic_triage.mail.pipeline import poll
         candidate={'title':'Synthetic','start':'2099-02-01T10:00:00Z','end':None,'date_note':None,'location':None}
         for destination in ('leave','archive'):
@@ -81,7 +82,7 @@ class FivePassTests(unittest.TestCase):
                              patch('local_agentic_triage.events.calendar.Calendar.nearby',return_value=[]), \
                              patch('local_agentic_triage.events.calendar.Calendar.create') as create, \
                              self.assertLogs('local_agentic_triage',level='ERROR') as logs:
-                            self.assertEqual(poll(box,make_config(),core.classify,events.process,extractor=events.extract,runner=runner),int(stage<decision_calls))
+                            self.assertEqual(poll(box,make_config(),core.classify,process_events,extractor=events.extract_events,runner=runner),int(stage<decision_calls))
                         self.assertNotIn('PRIVATE','\n'.join(logs.output))
                         create.assert_not_called()
                         if stage<decision_calls:

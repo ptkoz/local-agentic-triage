@@ -6,7 +6,7 @@ import subprocess
 from datetime import datetime
 
 from helpers import make_config
-from local_agentic_triage.events.core import process
+from local_agentic_triage.mail.event_pipeline import process_events
 from local_agentic_triage.mail.imap import Mailbox
 from local_agentic_triage.mail.pipeline import poll
 from test_imap import SELECT, SEARCH, done
@@ -18,7 +18,7 @@ EVENT = {'title': '"; doShellScript("evil"); //', 'start': '2099-12-01', 'end': 
 
 class ReviewTests(unittest.TestCase):
     def setUp(self):
-        patcher = patch('local_agentic_triage.mail.pipeline.extract', return_value=[])
+        patcher = patch('local_agentic_triage.mail.pipeline.extract_events', return_value=[])
         self.extractor = patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -41,7 +41,7 @@ class ReviewTests(unittest.TestCase):
         with patch('subprocess.run', side_effect=run) as runner, \
              patch('urllib.request.OpenerDirector.open',
                    side_effect=[decision_response({'outcome': 'create'}), decision_response(EVENT)]) as opened:
-            result = process([EVENT], make_config())
+            result = process_events([EVENT], make_config())
         self.assertEqual(result['results'][0]['outcome'], 'created')
         self.assertEqual(runner.call_count, 2)
         for call in runner.call_args_list:
@@ -184,15 +184,15 @@ class ReviewTests(unittest.TestCase):
 
     def test_semantic_outcomes_preserved_and_created_cannot_be_claimed(self):
         from local_agentic_triage.events.calendar import Calendar
-        from local_agentic_triage.events.core import duplicate_results
+        from local_agentic_triage.classifier.events import _duplicate_result
         candidates = [EVENT, EVENT | {'title': 'Different'}, EVENT | {'title': 'Ambiguous'}]
         answers = [{'outcome': 'create'}, EVENT, {'outcome': 'existing'}, {'outcome': 'possible_duplicate'}]
         with patch.object(Calendar, 'nearby', return_value=[]), \
              patch.object(Calendar, 'create') as create, \
              patch('urllib.request.OpenerDirector.open',
                    side_effect=[decision_response(a) for a in answers]):
-            final = process(candidates, make_config())
+            final = process_events(candidates, make_config())
         create.assert_called_once_with(EVENT)
-        self.assertEqual([r['outcome'] for r in final['results']], ['created', 'existing', 'skipped'])
+        self.assertEqual([r['outcome'] for r in final['results']], ['created', 'duplicate', 'duplicate'])
         with self.assertRaises(ValueError):
-            duplicate_results({'outcome': 'created'})
+            _duplicate_result({'outcome': 'created'})

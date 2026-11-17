@@ -6,7 +6,7 @@ from pathlib import Path
 from local_agentic_triage.mail.mime import Mail, parse
 from local_agentic_triage.classifier import input as classifier_input
 from local_agentic_triage.classifier.input import ContextBoundMail, fit_to_context
-from local_agentic_triage.classifier.core import classify, summarize
+from local_agentic_triage.classifier.disposition import classify, summarize
 from local_agentic_triage.classifier import helpers as classifier_helpers
 from local_agentic_triage.classifier.helpers import (CLASSIFICATION_SCHEMA,
     SUMMARY_SCHEMA, ModelContentJsonInvalid, ModelEnvelopeJsonInvalid,
@@ -16,8 +16,8 @@ import json
 from local_agentic_triage.common.diagnostics import error_code
 
 class ContentTests(unittest.TestCase):
-    def test_classifier_core_exposes_only_domain_functions(self):
-        import local_agentic_triage.classifier.core as core
+    def test_classifier_disposition_exposes_only_domain_functions(self):
+        import local_agentic_triage.classifier.disposition as core
         functions = {
             name for name, value in inspect.getmembers(core, inspect.isfunction)
             if value.__module__ == core.__name__
@@ -39,7 +39,7 @@ class ContentTests(unittest.TestCase):
         self.assertEqual(parse(raw,1000).body,'plain')
 
     def test_summary_is_validated_at_summary_boundary(self):
-        from local_agentic_triage.classifier.core import validate_summary
+        from local_agentic_triage.classifier.disposition import validate_summary
         with self.assertRaises(ValueError):
             validate_summary({'summary':''})
 
@@ -60,7 +60,7 @@ class ContentTests(unittest.TestCase):
             self.assertEqual(data['messages'][1]['content'],'{"metadata":{"sent_date":"","sender":"","subject":""},"body":"body"}')
 
     def test_summarize_and_classify_are_separate_requests(self):
-        import local_agentic_triage.classifier.core as core
+        import local_agentic_triage.classifier.disposition as core
         mail=fit_to_context(parse(b'Date: Wed, 01 Jan 2025 12:00:00 +0100\nSubject: Synthetic\n\nbody',100),10000)
         with patch.object(classifier_helpers,'chat_completion',side_effect=[
                 {'summary':'Syntetyczne podsumowanie.'},{'destination':'leave'}]) as chat:
@@ -102,8 +102,8 @@ class ContentTests(unittest.TestCase):
                 Response({'events':[]})]) as call:
             summary=summarize(mail)
             result=classify(mail,summary)
-            from local_agentic_triage.events import core as events
-            events.extract(mail)
+            from local_agentic_triage.classifier import events
+            events.extract_events(mail)
         requests=[json.loads(c.args[0].data) for c in call.call_args_list]
         self.assertEqual([r['messages'][1]['content'] for r in requests],[
             source,'{"summary": "Syntetyczny opis.", "mail": {"metadata": {"sent_date": "2025-01-01T12:00:00+01:00", "sender": "Zoża <sender@example.invalid>", "subject": "Synthetic"}, "body": "Synthetic body"}}',source])
@@ -113,7 +113,7 @@ class ContentTests(unittest.TestCase):
         self.assertEqual(result,'archive')
 
     def test_classify_does_not_revalidate_summary(self):
-        import local_agentic_triage.classifier.core as core
+        import local_agentic_triage.classifier.disposition as core
         mail=fit_to_context(parse(b'From: sender@example.invalid\n\nSynthetic',1000),10000)
         with patch.object(classifier_helpers,'chat_completion',return_value={'destination':'archive'}), \
              patch.object(core,'validate_summary',side_effect=AssertionError('redundant validation')):
@@ -211,14 +211,14 @@ class ContentTests(unittest.TestCase):
         self.assertEqual(bound.call_count,4)
 
     def test_model_consumers_serialize_the_same_decorated_mail(self):
-        from local_agentic_triage.events import core as events
+        from local_agentic_triage.classifier import events
         mail=Mail(sender='s'*5000,sender_address='s'*5000,sent_date='2025-01-01T12:00:00+01:00',body='b'*20000,subject='t'*5000)
         context_bound_mail=fit_to_context(mail,10000)
         with patch.object(classifier_helpers,'chat_completion',side_effect=[
                 {'summary':'Opis.'},{'destination':'leave'}]) as chat, \
-             patch.object(events,'chat_completion',return_value={'events':[]}) as extraction:
+             patch.object(events,'_chat_completion',return_value={'events':[]}) as extraction:
             classify(context_bound_mail,summarize(context_bound_mail))
-            events.extract(context_bound_mail)
+            events.extract_events(context_bound_mail)
         source=classifier_input.serialize_mail(context_bound_mail)
         summary_content,destination_content=(c.args[0][1]['content'] for c in chat.call_args_list)
         self.assertEqual(summary_content,source)

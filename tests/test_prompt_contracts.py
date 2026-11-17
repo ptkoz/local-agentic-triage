@@ -2,7 +2,12 @@
 import unittest
 
 from local_agentic_triage.classifier.helpers import disposition_prompt, summary_prompt
-from local_agentic_triage.events.core import completion_prompt, extraction_prompt, prompt
+from local_agentic_triage.classifier import events as classifier_events
+
+
+def completion_prompt(): return classifier_events._prompt('completion')
+def extraction_prompt(): return classifier_events._prompt('extraction')
+def prompt(): return classifier_events._prompt('duplicate')
 
 
 class PromptContractTests(unittest.TestCase):
@@ -91,19 +96,19 @@ class PromptContractTests(unittest.TestCase):
                      r'never deduplicate.*candidates')
 
     def test_single_day_and_explicit_exclusive_end(self):
-        from local_agentic_triage.events.core import validate_events
+        from local_agentic_triage.classifier.events import _validate_events
         self.clauses(extraction_prompt(),
                      r'single.date.*start.*yyyy-mm-dd.*end.*null',
                      r'(?:only|unless).*explicit.*(?:range|end)',
                      r'exclusive.*strictly after start',
                      r'(?:never|do not).*repair')
         event = dict(title='Synthetic', start='2099-02-20', end=None, date_note=None, location=None)
-        validate_events([event])
-        validate_events([event | {'end': '2099-02-21'}])
-        validate_events([event | {'end': event['start']}])
-        from local_agentic_triage.events.core import validate_final
+        _validate_events([event])
+        _validate_events([event | {'end': '2099-02-21'}])
+        _validate_events([event | {'end': event['start']}])
+        from local_agentic_triage.events.calendar import canonical
         with self.assertRaisesRegex(ValueError, 'event_order'):
-            validate_final(event | {'end': event['start']})
+            canonical(event | {'end': event['start']})
         self.assertIsNone(event['end'])
 
     def test_confirmed_event_with_alternatives_is_retained(self):
@@ -172,9 +177,9 @@ class PromptContractTests(unittest.TestCase):
                      r'resolve explicit unambiguous relative dates such as tomorrow from sent_date')
 
     def test_duplicate_guard_rejects_batch_and_extra_fields(self):
-        from local_agentic_triage.events.core import duplicate_results
+        from local_agentic_triage.classifier.events import _duplicate_result
         for outcome in ('existing','possible_duplicate','create'):
-            self.assertEqual(duplicate_results({'outcome':outcome}),outcome)
+            self.assertEqual(_duplicate_result({'outcome':outcome}),outcome)
         for invalid in ({'results':[]},{'outcome':'no_match'},{'outcome':'create','index':0},{}):
             with self.subTest(invalid=invalid),self.assertRaises(ValueError):
-                duplicate_results(invalid)
+                _duplicate_result(invalid)

@@ -10,6 +10,11 @@ summary and an immediate neutral Discord notification via Hermes before the IMAP
 disposition is applied. Destination failures are fatal/retryable; extraction and
 later event failures never block leave/archive.
 
+`classifier` owns every model call and its frozen prompts and schemas. `events`
+contains only the Calendar adapter and deterministic Calendar validation.
+`mail/event_pipeline.py` orchestrates fresh lookup, boolean duplicate checking,
+completion, horizon enforcement, and verified creation for each candidate.
+
 ## Offline development
 
 ```sh

@@ -2,8 +2,9 @@
 from datetime import date, datetime, timedelta, time, timezone
 from zoneinfo import ZoneInfo
 import json
+import re
 import subprocess
-from local_agentic_triage.classifier.helpers import strict_json
+from local_agentic_triage.common.json import strict_json
 
 # This source is constant. The only input is a JSON document read from stdin.
 SCRIPT=r'''
@@ -46,9 +47,59 @@ function run() {
 }
 '''
 
+EVENT_FIELDS={'title','start','end','date_note','location'}
+
+
+class InvalidCalendarEvent(ValueError):
+    def __init__(self,code,reason):
+        super().__init__(code)
+        self.reason=reason
+
+
+def _timestamp(value):
+    if not isinstance(value,str): raise ValueError('date type')
+    if re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}',value):
+        date.fromisoformat(value)
+        return
+    if not re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(?::[0-9]{2}(?:\.[0-9]+)?)?(?:Z|[+-][0-9]{2}:[0-9]{2})',value):
+        raise ValueError('date format')
+    if datetime.fromisoformat(value).tzinfo is None: raise ValueError('date timezone')
+
+
+def _validate_event(event):
+    if not isinstance(event,dict) or set(event)!=EVENT_FIELDS: raise ValueError('event_structure')
+    if any(value is not None and not isinstance(value,str) for value in event.values()): raise ValueError('event_structure')
+    if not event['title'] or not event['title'].strip() or len(event['title'])>200:
+        raise InvalidCalendarEvent('event_invalid_title','invalid_title')
+    try: _timestamp(event['start'])
+    except (TypeError,ValueError):
+        raise InvalidCalendarEvent('event_invalid_date','invalid_date') from None
+    if not event['end']: raise InvalidCalendarEvent('event_invalid_date','missing_end')
+    try: _timestamp(event['end'])
+    except (TypeError,ValueError):
+        raise InvalidCalendarEvent('event_invalid_date','invalid_date') from None
+    if (len(event['start'])==10)!=(len(event['end'])==10):
+        raise InvalidCalendarEvent('event_range','invalid_date')
+    if len(event['start'])==10:
+        if event['end']<=event['start']: raise InvalidCalendarEvent('event_order','invalid_date')
+    elif datetime.fromisoformat(event['end'])<=datetime.fromisoformat(event['start']):
+        raise InvalidCalendarEvent('event_order','invalid_date')
+    location=event['location']
+    if location is not None and (not location.strip() or len(location)>1000):
+        raise InvalidCalendarEvent('event_invalid_location','invalid_location')
+
+
+def lookup_reason(event):
+    if not isinstance(event,dict) or set(event)!=EVENT_FIELDS: raise ValueError('event_structure')
+    if any(value is not None and not isinstance(value,str) for value in event.values()): raise ValueError('event_structure')
+    if event['start'] is None or event['start']=='': return 'missing_date'
+    try: _timestamp(event['start'])
+    except (TypeError,ValueError): return 'invalid_date'
+    return None
+
+
 def canonical(event):
-    from local_agentic_triage.events.core import validate_final
-    validate_final(event)
+    _validate_event(event)
     all_day=len(event['start'])==10
     start=event['start']; end=event['end']
     if not all_day:
@@ -76,7 +127,8 @@ class Calendar:
         except (OSError,subprocess.SubprocessError,ValueError,TypeError):
             raise RuntimeError('calendar_adapter_failed') from None
     def nearby(self,event):
-        if event['start'] is None: return []
+        reason=lookup_reason(event)
+        if reason is not None: raise ValueError('event_'+reason)
         start=event['start']
         dt=date.fromisoformat(start) if len(start)==10 else datetime.fromisoformat(start)
         lower=(dt-timedelta(days=7)).isoformat()
