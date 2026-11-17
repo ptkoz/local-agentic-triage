@@ -6,43 +6,79 @@ from helpers import make_config
 from local_agentic_triage.reporting.report import deliver, render_notification
 
 
+SUMMARY = 'Syntetyczne podsumowanie (przykład) wiadomości testowej.'
+
+
 class RenderNotificationTests(unittest.TestCase):
     def _row(self, **kw):
-        base = {'sender': 'Example <ex@example.invalid>', 'summary': 'Synthetic summary.',
-                'sent_at': '2026-10-31T00:27:00+00:00'}
+        base = {'sender_name': 'Synthetic Shop', 'sender_address': 'orders@shop.invalid', 'summary': SUMMARY,
+                'sent_at': '2026-11-17T14:23:00+00:00'}
         return {**base, **kw}
 
-    def test_neutral_format_with_date(self):
-        text = render_notification(self._row(), 1900)
-        self.assertEqual(text, 'Od **Example <ex@example.invalid>** z dnia 31 paź, 01:27\n> Synthetic summary.')
+    def test_archive_format_with_date(self):
+        text = render_notification(self._row(), 1900, destination='archive')
+        self.assertEqual(text, '**Archiwum**: z **17 lis, 15:23** od **Synthetic Shop** (orders@shop.invalid)\n> ' + SUMMARY)
+
+    def test_leave_format_with_date(self):
+        text = render_notification(self._row(), 1900, destination='leave')
+        self.assertEqual(text, '**Inbox**: z **17 lis, 15:23** od **Synthetic Shop** (orders@shop.invalid)\n> ' + SUMMARY)
 
     def test_missing_date_renders_fallback(self):
-        text = render_notification(self._row(sent_at=None), 1900)
-        self.assertIn('data wiadomości niedostępna', text)
-        self.assertIn('Synthetic summary.', text)
+        for sent_at in (None, ''):
+            with self.subTest(sent_at=sent_at):
+                self.assertEqual(
+                    render_notification(self._row(sent_at=sent_at), 1900, destination='archive'),
+                    '**Archiwum**: od **Synthetic Shop** (orders@shop.invalid) — data wiadomości niedostępna\n> ' + SUMMARY)
+                self.assertEqual(
+                    render_notification(self._row(sent_at=sent_at), 1900, destination='leave'),
+                    '**Inbox**: od **Synthetic Shop** (orders@shop.invalid) — data wiadomości niedostępna\n> ' + SUMMARY)
+
+    def test_absent_display_name_renders_address_once(self):
+        row = self._row(sender_name='')
+        self.assertEqual(render_notification(row, 1900, destination='archive'),
+                         '**Archiwum**: z **17 lis, 15:23** od **orders@shop.invalid**\n> ' + SUMMARY)
+        self.assertEqual(render_notification(row | {'sent_at': None}, 1900, destination='leave'),
+                         '**Inbox**: od **orders@shop.invalid** — data wiadomości niedostępna\n> ' + SUMMARY)
+
+    def test_display_name_equal_to_address_renders_address_once(self):
+        row = self._row(sender_name='orders@shop.invalid')
+        self.assertEqual(render_notification(row, 1900, destination='leave'),
+                         '**Inbox**: z **17 lis, 15:23** od **orders@shop.invalid**\n> ' + SUMMARY)
+
+    def test_absent_address_renders_display_name_only(self):
+        row = self._row(sender_address='')
+        self.assertEqual(render_notification(row, 1900, destination='archive'),
+                         '**Archiwum**: z **17 lis, 15:23** od **Synthetic Shop**\n> ' + SUMMARY)
+
+    def test_destination_is_required_and_closed(self):
+        with self.assertRaises(TypeError):
+            render_notification(self._row(), 1900)
+        for destination in ('', 'Archive', 'inbox', None):
+            with self.subTest(destination=destination), self.assertRaises(ValueError):
+                render_notification(self._row(), 1900, destination=destination)
 
     def test_oversize_raises(self):
         with self.assertRaises(ValueError):
-            render_notification(self._row(summary='x' * 2000), 1900)
+            render_notification(self._row(summary='x' * 2000), 1900, destination='archive')
 
     def test_invalid_limit_raises(self):
         with self.assertRaises(ValueError):
-            render_notification(self._row(), 50)
+            render_notification(self._row(), 50, destination='archive')
         with self.assertRaises(ValueError):
-            render_notification(self._row(), 2001)
+            render_notification(self._row(), 2001, destination='archive')
 
     def test_empty_summary_raises(self):
         with self.assertRaises(ValueError):
-            render_notification(self._row(summary=''), 1900)
+            render_notification(self._row(summary=''), 1900, destination='archive')
 
     def test_none_summary_raises(self):
         with self.assertRaises(ValueError):
-            render_notification(self._row(summary=None), 1900)
+            render_notification(self._row(summary=None), 1900, destination='archive')
 
-    def test_special_summary_chars_pass_through(self):
-        row = self._row(summary='*Ważne* (4 listopada)')
-        text = render_notification(row, 1900)
-        self.assertIn('*Ważne* (4 listopada)', text)
+    def test_summary_text_passes_through_exactly(self):
+        summary = ' *Ważne* (4 listopada) <@123> **x**\n# nagłówek  '
+        text = render_notification(self._row(summary=summary), 1900, destination='leave')
+        self.assertEqual(text, '**Inbox**: z **17 lis, 15:23** od **Synthetic Shop** (orders@shop.invalid)\n> ' + summary)
 
 
 class DeliverTests(unittest.TestCase):

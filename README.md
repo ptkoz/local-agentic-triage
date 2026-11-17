@@ -6,8 +6,10 @@ JSON Schemas: summary generation, destination classification, independent sparse
 duplicate checking against nearby Calendar rows, and event completion only
 after `create`. Guessed values never influence duplicate checking. A deterministic
 single-calendar adapter creates and verifies events. Every mail receives a mandatory
-summary and an immediate neutral Discord notification via Hermes before the IMAP
-disposition is applied. Destination failures are fatal/retryable; extraction and
+summary and an immediate Discord notification via Hermes before the IMAP
+disposition is applied. Its heading names the destination
+(`**Archiwum**` for `archive`, `**Inbox**` for `leave`), followed by the sent
+date and the parsed sender display name and address. Destination failures are fatal/retryable; extraction and
 later event failures never block leave/archive.
 
 `classifier/resources.py` is the single owner and loader of every frozen model

@@ -7,6 +7,7 @@ from local_agentic_triage.common.diagnostics import error_code, error_suffix, Co
 log = logging.getLogger('local_agentic_triage')
 WARSAW = ZoneInfo('Europe/Warsaw')
 MONTHS = ('', 'sty', 'lut', 'mar', 'kwi', 'maj', 'cze', 'lip', 'sie', 'wrz', 'paź', 'lis', 'gru')
+DESTINATION_LABELS = {'archive': 'Archiwum', 'leave': 'Inbox'}
 
 
 def _label(value, comma=False):
@@ -22,17 +23,27 @@ def _label(value, comma=False):
     return f'{value.day} {MONTHS[value.month]}{separator}{value:%H:%M}'
 
 
-def render_notification(row, limit):
+def _sender(name, address):
+    # Without a distinct display name, show the address once instead of repeating it.
+    if name and name != address:
+        return f'**{name}** ({address})' if address else f'**{name}**'
+    return f'**{address}**'
+
+
+def render_notification(row, limit, *, destination):
     if not 100 <= limit <= 2000:
         raise ValueError('report limit invalid')
-    sender = row['sender']
+    if destination not in DESTINATION_LABELS:
+        raise ValueError('destination invalid')
+    heading = f'**{DESTINATION_LABELS[destination]}**:'
+    sender = _sender(row['sender_name'], row['sender_address'])
     summary = row['summary']
     if not isinstance(summary, str) or not summary:
         raise ValueError('summary required')
     if row['sent_at']:
-        text = f'Od **{sender}** z dnia {_label(row["sent_at"], comma=True)}\n> {summary}'
+        text = f'{heading} z **{_label(row["sent_at"], comma=True)}** od {sender}\n> {summary}'
     else:
-        text = f'Od **{sender}** — data wiadomości niedostępna\n> {summary}'
+        text = f'{heading} od {sender} — data wiadomości niedostępna\n> {summary}'
     if len(text) > limit:
         raise ValueError('notification too long')
     return text

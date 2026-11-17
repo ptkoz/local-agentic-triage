@@ -91,7 +91,9 @@ disposition.
 Every processed mail produces one immediate Discord notification, regardless
 of whether its disposition is `archive` or `leave`. The complete notification
 must be valid before optional side effects begin and must be delivered
-successfully before the mailbox is changed.
+successfully before the mailbox is changed. Its heading names the destination
+(`**Archiwum**` for `archive`, `**Inbox**` for `leave`), followed by the sent
+date, the parsed sender display name and address, and the unmodified summary.
 
 - `leave` marks the message `Flagged` and keeps it in the Inbox.
 - `archive` moves the message to Archive without changing its read state.
