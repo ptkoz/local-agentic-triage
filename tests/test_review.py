@@ -17,11 +17,6 @@ EVENT = {'title': '"; doShellScript("evil"); //', 'start': '2099-12-01', 'end': 
 
 
 class ReviewTests(unittest.TestCase):
-    def setUp(self):
-        patcher = patch('local_agentic_triage.mail.pipeline.extract_events', return_value=[])
-        self.extractor = patcher.start()
-        self.addCleanup(patcher.stop)
-
     def test_toolless_decision_and_adapter_data(self):
         from local_agentic_triage.events.calendar import Calendar, SCRIPT
 
@@ -30,17 +25,17 @@ class ReviewTests(unittest.TestCase):
             self.assertNotIn(EVENT['title'], SCRIPT)
             data = json.loads(kw['input'])
             self.assertEqual(data['calendar'], 'Test Calendar')
-            out = ([] if data['operation'] == 'search'
-                   else {'title': EVENT['title'], 'start': '2099-12-01', 'end': '2099-12-02',
-                         'all_day': True, 'location': None})
-            return subprocess.CompletedProcess(args, 0, json.dumps(out), '')
+            self.assertEqual(data['operation'], 'search')
+            return subprocess.CompletedProcess(args, 0, json.dumps([]), '')
 
         with patch('subprocess.run', side_effect=run) as runner, \
              patch('urllib.request.OpenerDirector.open',
                    side_effect=[decision_response({'outcome': 'create'}), decision_response(EVENT)]) as opened:
-            result = process_events([EVENT], make_config())
-        self.assertEqual(result['results'][0]['outcome'], 'created')
-        self.assertEqual(runner.call_count, 2)
+            [result] = process_events([EVENT], make_config())
+        self.assertEqual(result.outcome, 'prepared')
+        self.assertEqual(runner.call_count, 1)
+        self.assertEqual(result.attachment.filename, 'event-1.ics')
+        self.assertIn('SUMMARY:"\\; doShellScript("evil")\\; //\r\n', result.attachment.content)
         for call in runner.call_args_list:
             self.assertFalse(call.kwargs['shell'])
             self.assertGreater(call.kwargs['timeout'], 0)
@@ -96,28 +91,19 @@ class ReviewTests(unittest.TestCase):
                  self.assertRaisesRegex(ValueError, 'calendar_search_invalid'):
                 Calendar(make_config()).nearby(EVENT)
 
-    def test_equal_all_day_create_readback_is_not_normalized(self):
-        from local_agentic_triage.events.calendar import Calendar
-        row = {'title': EVENT['title'], 'start': '2099-12-01', 'end': '2099-12-01',
-               'all_day': True, 'location': None}
-        with patch.object(Calendar, 'call', return_value=row), \
-             self.assertRaisesRegex(ValueError, 'calendar_verification_failed'):
-            Calendar(make_config()).create(EVENT)
-
     def test_event_adapter_failure_is_absorbed_and_archive_completes(self):
         box = Mock(validity='77')
         box.candidates.return_value = ['9']
 
         box.raw.return_value = (b'Date: Sat, 31 Oct 2026 01:27:00 +0100\n'
                                 b'From: Synthetic Sender <sender@example.invalid>\n\nSynthetic body')
-        summarizer = Mock(return_value='Synthetic summary')
-        classifier = Mock(return_value='archive')
-        self.extractor.return_value = [EVENT]
-        event_processor = Mock(side_effect=RuntimeError('PRIVATE adapter output'))
+        summarize = Mock(return_value='Synthetic summary')
+        classify = Mock(return_value='archive')
+        process_events = Mock(side_effect=RuntimeError('PRIVATE adapter output'))
         runner = Mock(return_value=Mock(returncode=0))
         with self.assertLogs('local_agentic_triage', level='ERROR') as logs:
-            self.assertEqual(poll(box, make_config(), classifier, event_processor,
-                                  summarizer=summarizer, runner=runner), 0)
+            self.assertEqual(poll(box, make_config(), classify, process_events, summarize=summarize,
+                                  extract_event_candidates=Mock(return_value=[EVENT]), runner=runner), 0)
         output = '\n'.join(logs.output)
         self.assertEqual(output.count('mail_event_failed'), 1)
         self.assertIn('mail_event_failed uid=9 error=runtime_error', output)
@@ -130,38 +116,27 @@ class ReviewTests(unittest.TestCase):
         sent_text = runner.call_args.kwargs['input']
         self.assertIn('Synthetic summary', sent_text)
 
-    def test_readback_mismatch_and_unsafe_create_rejected(self):
-        from local_agentic_triage.events.calendar import Calendar, canonical
-        expected = canonical(EVENT)
-        for wrong in (expected | {'title': 'other'}, expected | {'start': '2099-12-02'},
-                      expected | {'end': '2099-12-03'}, expected | {'calendar': 'Other'}, {}):
-            with patch.object(Calendar, 'call', return_value=wrong), \
-                 self.assertRaisesRegex(ValueError, 'calendar_verification_failed'):
-                Calendar(make_config()).create(EVENT)
-        noted = EVENT | {'date_note': 'Synthetic retained note'}
-        with patch.object(Calendar, 'call', return_value=expected) as call:
-            self.assertEqual(Calendar(make_config()).create(noted), expected)
-        call.assert_called_once_with({'operation': 'create', 'event': expected})
-        for event in (EVENT | {'start': None}, EVENT | {'start': '2099-12-01T10:00:00Z'},
-                      EVENT | {'start': '2000-01-01', 'end': '2000-01-02'}):
-            with patch.object(Calendar, 'call') as call, self.assertRaises(ValueError):
-                Calendar(make_config()).create(event)
-            call.assert_not_called()
+    def test_calendar_adapter_rejects_every_operation_except_search(self):
+        from local_agentic_triage.events.calendar import Calendar, SCRIPT
+        self.assertFalse(hasattr(Calendar, 'create'))
+        self.assertIn("if (data.operation !== 'search') throw Error('calendar_operation');", SCRIPT)
+        with self.assertRaisesRegex(ValueError, 'calendar_boundary'):
+            Calendar(make_config()).call({'operation': 'search', 'calendar': 'Other'})
 
-    def test_create_boundary_requires_strictly_more_than_three_days(self):
-        from local_agentic_triage.events.calendar import Calendar, canonical
+    def test_attachment_boundary_requires_strictly_more_than_three_days(self):
+        from local_agentic_triage.events.calendar import Calendar
         clock = lambda tz=None: datetime(2030, 1, 1, 12, 0, tzinfo=tz)
         timed = EVENT | {'start': '2030-01-02T12:00:00Z', 'end': '2030-01-04T12:00:00Z'}
         all_day = EVENT | {'start': '2030-01-02', 'end': '2030-01-04'}
-        for event in (timed, all_day):
-            with self.subTest(event=event), patch.object(Calendar, 'call') as call, \
-                 self.assertRaisesRegex(ValueError, 'calendar_too_soon'):
-                Calendar(make_config(), clock=clock).create(event)
-            call.assert_not_called()
-        for event in (timed | {'end': '2030-01-04T12:00:01Z'}, all_day | {'end': '2030-01-05'}):
-            with self.subTest(event=event), patch.object(Calendar, 'call', return_value=canonical(event)) as call:
-                Calendar(make_config(), clock=clock).create(event)
-            call.assert_called_once()
+        cases = ((timed, 'skipped'), (all_day, 'skipped'),
+                 (timed | {'end': '2030-01-04T12:00:01Z'}, 'prepared'), (all_day | {'end': '2030-01-05'}, 'prepared'))
+        for event, outcome in cases:
+            with self.subTest(event=event), patch.object(Calendar, 'nearby', return_value=[]), \
+                 patch('urllib.request.OpenerDirector.open',
+                       side_effect=[decision_response({'outcome': 'create'}), decision_response(event)]):
+                [result] = process_events([event], make_config(), clock=clock)
+            self.assertEqual(result.outcome, outcome)
+            self.assertEqual(result.attachment is not None, outcome == 'prepared')
 
     def test_every_uid_guard_rejects_changed_validity_and_missing(self):
         for operation in ('raw', 'leave', 'archive'):
@@ -180,11 +155,10 @@ class ReviewTests(unittest.TestCase):
         candidates = [EVENT, EVENT | {'title': 'Different'}, EVENT | {'title': 'Ambiguous'}]
         answers = [{'outcome': 'create'}, EVENT, {'outcome': 'existing'}, {'outcome': 'possible_duplicate'}]
         with patch.object(Calendar, 'nearby', return_value=[]), \
-             patch.object(Calendar, 'create') as create, \
              patch('urllib.request.OpenerDirector.open',
                    side_effect=[decision_response(a) for a in answers]):
-            final = process_events(candidates, make_config())
-        create.assert_called_once_with(EVENT)
-        self.assertEqual([r['outcome'] for r in final['results']], ['created', 'duplicate', 'duplicate'])
+            final = list(process_events(candidates, make_config()))
+        self.assertEqual([r.attachment is not None for r in final], [True, False, False])
+        self.assertEqual([r.outcome for r in final], ['prepared', 'duplicate', 'duplicate'])
         with self.assertRaises(ValueError):
             _validate_duplicate_result({'outcome': 'created'})

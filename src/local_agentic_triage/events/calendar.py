@@ -1,4 +1,4 @@
-"""Fixed Calendar capability: configured-calendar reads and verified creates."""
+"""Fixed read-only Calendar capability: configured-calendar lookups and event validation."""
 from datetime import date, datetime, timedelta, time, timezone
 from zoneinfo import ZoneInfo
 import json
@@ -28,22 +28,11 @@ function run() {
         return {title:e.summary(),start:all?day(e.startDate()):e.startDate().toISOString(),
                 end:all?day(e.endDate()):e.endDate().toISOString(),all_day:all,location:e.location() || null};
     }
-    if (data.operation === 'search') {
-        const matches=calendar.events.whose({_and:[{startDate:{_lessThanEquals:parse(data.upper)}},
-                                                {endDate:{_greaterThanEquals:parse(data.lower)}}]})();
-        if (matches.length > 1000) throw Error('calendar_limit');
-        return JSON.stringify(matches.map(minimal));
-    }
-    if (data.operation !== 'create') throw Error('calendar_operation');
-    const e=data.event;
-    const properties={summary:e.title,startDate:parse(e.start),endDate:parse(e.end),alldayEvent:e.all_day};
-    if (e.location !== null) properties.location=e.location;
-    const created=app.Event(properties);
-    calendar.events.push(created);
-    const id=created.uid();
-    const readback=calendar.events.whose({uid:id})();
-    if (readback.length !== 1) throw Error('calendar_readback');
-    return JSON.stringify(minimal(readback[0]));
+    if (data.operation !== 'search') throw Error('calendar_operation');
+    const matches=calendar.events.whose({_and:[{startDate:{_lessThanEquals:parse(data.upper)}},
+                                            {endDate:{_greaterThanEquals:parse(data.lower)}}]})();
+    if (matches.length > 1000) throw Error('calendar_limit');
+    return JSON.stringify(matches.map(minimal));
 }
 '''
 
@@ -164,9 +153,3 @@ class Calendar:
             return date.fromisoformat(end_value)<=current.astimezone(ZoneInfo('Europe/Warsaw')).date()+timedelta(days=3)
         end=datetime.fromisoformat(end_value)
         return end<=current+timedelta(hours=72)
-    def create(self,event):
-        expected=canonical(event)
-        if self.too_soon(event): raise ValueError('calendar_too_soon')
-        actual=self.call({'operation':'create','event':expected})
-        if not same(actual,expected): raise ValueError('calendar_verification_failed')
-        return actual

@@ -50,7 +50,7 @@ class EventTests(unittest.TestCase):
              patch('urllib.request.urlopen',side_effect=AssertionError('unsafe open')), \
              patch('local_agentic_triage.events.calendar.Calendar.nearby',return_value=[]), \
              patch('subprocess.run',side_effect=AssertionError('decision subprocess')):
-            process_events([EVENT],make_config(timeout=1))
+            list(process_events([EVENT],make_config(timeout=1)))
         handlers=build.call_args.args
         self.assertIsInstance(handlers[0],urllib.request.ProxyHandler)
         self.assertEqual(handlers[0].proxies,{})
@@ -64,12 +64,12 @@ class EventTests(unittest.TestCase):
     def test_process_results_are_ordered_by_construction(self):
         with patch.object(classifier_events.transport, 'chat_completion_with_payload', return_value={'outcome': 'existing'}), \
              patch('local_agentic_triage.events.calendar.Calendar.nearby', return_value=[]):
-            result = process_events([EVENT, EVENT | {'title': 'Second', 'start': '2026-12-02'}],
-                                    make_config())
-        self.assertEqual([entry['index'] for entry in result['results']], [0, 1])
+            result = list(process_events([EVENT, EVENT | {'title': 'Second', 'start': '2026-12-02'}],
+                                         make_config()))
+        self.assertEqual([entry.index for entry in result], [0, 1])
 
 
-    def test_transport_failure_is_sanitized_and_does_not_create(self):
+    def test_transport_failure_is_sanitized_and_prepares_nothing(self):
         cases=(
             urllib.error.URLError('PRIVATE_SENTINEL'),
             urllib.error.HTTPError('http://127.0.0.1:12434/engines/v1/chat/completions',500,'PRIVATE_SENTINEL',{},io.BytesIO(b'PRIVATE_SENTINEL')),
@@ -79,16 +79,15 @@ class EventTests(unittest.TestCase):
             try:
                 with self.subTest(kind=type(exc).__name__):
                     with patch('local_agentic_triage.events.calendar.Calendar.nearby',return_value=[]), \
-                         patch('local_agentic_triage.events.calendar.Calendar.create') as create, \
                          patch('subprocess.run',side_effect=AssertionError('decision subprocess')), \
                          patch('urllib.request.OpenerDirector.open',side_effect=exc):
                         with self.assertRaises(RuntimeError) as caught:
-                            process_events([EVENT],make_config())
+                            (results:=[]).extend(process_events([EVENT],make_config()))
                     self.assertEqual(error_code(caught.exception),'model_request_failed')
                     self.assertNotIn('PRIVATE_SENTINEL',str(caught.exception))
                     self.assertIsNone(caught.exception.__cause__)
                     self.assertTrue(caught.exception.__suppress_context__)
-                    create.assert_not_called()
+                    self.assertEqual(results,[])
             finally:
                 if isinstance(exc,urllib.error.HTTPError): exc.close()
 
@@ -98,38 +97,35 @@ class EventTests(unittest.TestCase):
         for payload in envelope_cases:
             with self.subTest(boundary='envelope',payload=type(payload).__name__):
                 with patch('local_agentic_triage.events.calendar.Calendar.nearby',return_value=[]), \
-                     patch('local_agentic_triage.events.calendar.Calendar.create') as create, \
                      patch('subprocess.run',side_effect=AssertionError('decision subprocess')), \
                      patch('urllib.request.OpenerDirector.open',return_value=decision_response(raw=payload)):
                     with self.assertRaises(ModelEnvelopeJsonInvalid) as caught:
-                        process_events([EVENT],make_config())
+                        (results:=[]).extend(process_events([EVENT],make_config()))
                 self.assertEqual(error_code(caught.exception),'model_envelope_json_invalid')
                 self.assertNotIn('PRIVATE',str(caught.exception))
-                create.assert_not_called()
+                self.assertEqual(results,[])
         content_cases=('not json','{"a":1,"a":2}','NaN','Infinity','-Infinity',{'not':'json text'})
         for content in content_cases:
             with self.subTest(boundary='content',content=type(content).__name__):
                 with patch('local_agentic_triage.events.calendar.Calendar.nearby',return_value=[]), \
-                     patch('local_agentic_triage.events.calendar.Calendar.create') as create, \
                      patch('subprocess.run',side_effect=AssertionError('decision subprocess')), \
                      patch('urllib.request.OpenerDirector.open',return_value=decision_response(content=content)):
                     with self.assertRaises(ModelContentJsonInvalid) as caught:
-                        process_events([EVENT],make_config())
+                        (results:=[]).extend(process_events([EVENT],make_config()))
                 self.assertEqual(error_code(caught.exception),'model_content_json_invalid')
                 self.assertNotIn('not json',str(caught.exception))
-                create.assert_not_called()
+                self.assertEqual(results,[])
 
 
-    def test_finish_reason_must_stop_before_create(self):
+    def test_finish_reason_must_stop_before_attachment(self):
         for finish in ('length','tool_calls',None):
             with self.subTest(finish=finish):
                 with patch('local_agentic_triage.events.calendar.Calendar.nearby',return_value=[]), \
-                     patch('local_agentic_triage.events.calendar.Calendar.create') as create, \
                      patch('subprocess.run',side_effect=AssertionError('decision subprocess')), \
                      patch('urllib.request.OpenerDirector.open',return_value=decision_response(DECISION,finish=finish)):
                     with self.assertRaisesRegex(ValueError,'^model incomplete$'):
-                        process_events([EVENT],make_config())
-                create.assert_not_called()
+                        (results:=[]).extend(process_events([EVENT],make_config()))
+                self.assertEqual(results,[])
 
 
     def test_over_budget_payload_is_not_truncated_or_sent(self):
@@ -140,12 +136,11 @@ class EventTests(unittest.TestCase):
         ]
         decision={'results':[{'index':0,'outcome':'no_match'}]}
         with patch('local_agentic_triage.events.calendar.Calendar.nearby',return_value=nearby) as looked_up, \
-             patch('local_agentic_triage.events.calendar.Calendar.create') as create, \
              patch('subprocess.run',side_effect=AssertionError('decision subprocess')) as run, \
              patch('urllib.request.OpenerDirector.open',return_value=decision_response(decision)) as opened:
             with self.assertRaisesRegex(ValueError,'^event_payload_size$') as caught:
-                process_events([event],make_config())
+                (results:=[]).extend(process_events([event],make_config()))
         self.assertNotIn('unique-suffix',str(caught.exception))
         self.assertNotIn('N'*50,str(caught.exception))
         looked_up.assert_called_once_with(event)
-        opened.assert_not_called(); create.assert_not_called(); run.assert_not_called()
+        opened.assert_not_called(); self.assertEqual(results,[]); run.assert_not_called()

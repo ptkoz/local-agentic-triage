@@ -5,20 +5,25 @@ the sole mail boundary. One fixed loopback Ministral model performs five separat
 JSON Schemas: summary generation, destination classification, independent sparse event extraction,
 duplicate checking against nearby Calendar rows, and event completion only
 after `create`. Guessed values never influence duplicate checking. A deterministic
-single-calendar adapter creates and verifies events. Every mail receives a mandatory
+single-calendar adapter only reads the configured Calendar; triage never creates
+Calendar events. Each validated, eligible, non-duplicate event is instead attached
+to that mail's Discord notification as an iCalendar (`.ics`) file for optional manual
+import. Duplicate and skipped events produce no attachment. Every mail receives a mandatory
 summary and an immediate Discord notification via Hermes before the IMAP
 disposition is applied. Its heading names the destination
 (`**Archiwum**` for `archive`, `**Inbox**` for `leave`), followed by the sent
-date and the parsed sender display name and address. Destination failures are fatal/retryable; extraction and
-later event failures never block leave/archive.
+date and the parsed sender display name and address. Destination failures are fatal/retryable; extraction,
+later event, and attachment failures never block the notification or leave/archive.
 
 `classifier/resources.py` is the single owner and loader of every frozen model
-prompt and output schema; each resource is named after its consuming public
-classifier function. `classifier/transport.py` owns model requests and their
-context limits. `events` handles Calendar access and deterministic Calendar
-validation.
+prompt and output schema; each resource is named after the model operation it
+serves. `classifier/transport.py` owns model requests and their
+context limits. `events` handles read-only Calendar lookup, deterministic event
+validation, and RFC 5545 iCalendar export.
 `mail/event_pipeline.py` orchestrates fresh lookup, boolean duplicate checking,
-completion, horizon enforcement, and verified creation for each candidate.
+completion, horizon enforcement, and attachment preparation for each candidate,
+yielding one immutable result per candidate.
+`reporting` sends prepared attachments with the notification through Hermes.
 
 ## Offline development
 
@@ -134,8 +139,9 @@ The poll LaunchAgent runs every 300 seconds. See
    scheduling. Use an isolated test account/mailbox; `mail poll` processes every
    eligible message in the configured Inbox, so a single synthetic message is
    safe only after explicitly confirming that no other eligible messages exist.
-   Invoke `mail poll` manually and inspect the resulting Discord notification,
-   mailbox/calendar state, and privacy-safe logs.
+   Invoke `mail poll` manually and inspect the resulting Discord notification and
+   any attached iCalendar files, mailbox state, and privacy-safe logs. Calendar
+   must remain unchanged.
    Do not use a real mailbox as an unreviewed first-run probe.
 7. After those checks and explicit production authorization, load the poller from that
    account's active GUI session:

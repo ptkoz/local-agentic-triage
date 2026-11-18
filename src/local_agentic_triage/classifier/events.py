@@ -5,7 +5,7 @@ from local_agentic_triage.classifier.input import (
     serialize_mail,
 )
 
-__all__ = ('extract_events', 'is_duplicate', 'complete_event')
+__all__ = ('extract_event_candidates', 'is_duplicate', 'complete_event')
 
 
 _EVENT_FIELDS = {'title', 'start', 'end', 'date_note', 'location'}
@@ -44,7 +44,7 @@ def _validate_completion_result(result, event):
     return result
 
 
-def extract_events(context_bound_mail: ContextBoundMail):
+def extract_event_candidates(context_bound_mail: ContextBoundMail):
     result = transport.chat_completion([
         {'role': 'system', 'content': resources.extract_events_prompt()},
         {'role': 'user', 'content': serialize_mail(context_bound_mail)},

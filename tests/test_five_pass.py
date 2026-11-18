@@ -28,20 +28,20 @@ class FivePassTests(unittest.TestCase):
             with self.subTest(destination=destination):
                 box=Mock(validity='77'); box.candidates.return_value=['9']
                 box.raw.return_value=b'Date: Wed, 01 Jan 2025 12:00:00 +0100\nFrom: synthetic@example.invalid\n\nbody'
-                summarizer=Mock(return_value='summary')
-                classifier=Mock(return_value=destination)
-                extractor=Mock(side_effect=ValueError('PRIVATE'))
-                processor=Mock()
+                summarize=Mock(return_value='summary')
+                classify=Mock(return_value=destination)
+                extract_event_candidates=Mock(side_effect=ValueError('PRIVATE'))
+                process_events=Mock()
                 runner=Mock(return_value=Mock(returncode=0))
                 with self.assertLogs('local_agentic_triage',level='ERROR') as logs:
-                    self.assertEqual(poll(box,make_config(),classifier,processor,summarizer=summarizer,
-                                          extractor=extractor,runner=runner),0)
+                    self.assertEqual(poll(box,make_config(),classify,process_events,summarize=summarize,
+                                          extract_event_candidates=extract_event_candidates,runner=runner),0)
                 self.assertNotIn('PRIVATE','\n'.join(logs.output))
                 getattr(box,destination).assert_called_once_with('9')
                 runner.assert_called_once()
-                processor.assert_not_called()
-                self.assertEqual(extractor.call_args.args,classifier.call_args.args[:1])
-                self.assertEqual(classifier.call_args.args[1],'summary')
+                process_events.assert_not_called()
+                self.assertEqual(extract_event_candidates.call_args.args,classify.call_args.args[:1])
+                self.assertEqual(classify.call_args.args[1],'summary')
 
 
     def test_all_five_schemas_are_closed_and_complete(self):
@@ -82,11 +82,10 @@ class FivePassTests(unittest.TestCase):
                         runner=Mock(return_value=Mock(returncode=0))
                         with patch('urllib.request.OpenerDirector.open',side_effect=responses), \
                              patch('local_agentic_triage.events.calendar.Calendar.nearby',return_value=[]), \
-                             patch('local_agentic_triage.events.calendar.Calendar.create') as create, \
                              self.assertLogs('local_agentic_triage',level='ERROR') as logs:
-                            self.assertEqual(poll(box,make_config(),core.classify,process_events,extractor=events.extract_events,runner=runner),int(stage<decision_calls))
+                            self.assertEqual(poll(box,make_config(),core.classify,process_events,extract_event_candidates=events.extract_event_candidates,runner=runner),int(stage<decision_calls))
+                        self.assertFalse(any(line.startswith('MEDIA:') for call in runner.call_args_list for line in call.kwargs['input'].split('\n')))
                         self.assertNotIn('PRIVATE','\n'.join(logs.output))
-                        create.assert_not_called()
                         if stage<decision_calls:
                             box.leave.assert_not_called(); box.archive.assert_not_called()
                             runner.assert_not_called()
