@@ -96,6 +96,28 @@ class PackagingTests(unittest.TestCase):
         self.assertIn('after the mandatory notification has been rendered and validated', readme)
         self.assertIn('(`**Archiwum**` for `archive`, `**Inbox**` for `leave`)', readme)
 
+    def test_documentation_describes_read_only_calendar_and_ical_attachments(self):
+        architecture = (ROOT / 'docs/architecture.md').read_text()
+        readme = (ROOT / 'README.md').read_text()
+        security = (ROOT / 'docs/security.md').read_text()
+        self.assertIn('Triage never creates, edits, or deletes Calendar events', architecture)
+        self.assertIn('Duplicate and skipped candidates produce no attachment.', architecture)
+        self.assertIn('candidates\nfrom the same mail are never compared with each other', architecture)
+        self.assertIn('Other candidates from the same mail never enter\nduplicate checking', security)
+        for document in (architecture, security):
+            for removed in ('together with the events already prepared',
+                            'rows of the same shape for events already prepared'):
+                self.assertNotIn(removed, ' '.join(document.split()))
+        self.assertIn('Prepared event attachments are\ndelivered with that same notification', architecture)
+        for detail in ('MEDIA:', '.ics', 'event-1', 'CRLF', 'VCALENDAR', 'readback'):
+            self.assertNotIn(detail, architecture)
+        self.assertIn('triage never creates\nCalendar events', readme)
+        self.assertIn('iCalendar (`.ics`) file', readme)
+        self.assertIn('triage has no Calendar write capability', security)
+        for document in (architecture, readme, security):
+            self.assertNotIn('verified creation', document)
+            self.assertNotIn('creates and verifies', document)
+
     def test_failed_build_preserves_existing_archive(self):
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / 'triage.pyz'

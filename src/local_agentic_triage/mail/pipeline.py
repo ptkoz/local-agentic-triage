@@ -4,16 +4,16 @@ from local_agentic_triage.mail.mime import parse
 from local_agentic_triage.classifier.input import MAIL_PAYLOAD_BYTES, fit_to_context
 from local_agentic_triage.mail.vulcan import VULCAN_SENDER, delegate_to_vulcan_handler
 from local_agentic_triage.mail.imap import uid_value
-from local_agentic_triage.classifier.disposition import summarize, classify
-from local_agentic_triage.classifier.events import extract_events
-from local_agentic_triage.mail.event_pipeline import process_events
+from local_agentic_triage.classifier import disposition, events
+from local_agentic_triage.mail import event_pipeline
 from local_agentic_triage.common.diagnostics import error_code, error_suffix
 from local_agentic_triage.reporting.report import render_notification, deliver
 
 log = logging.getLogger('local_agentic_triage')
 
 
-def diagnose(mailbox, config, uid, classifier=classify, expected_validity=None, *, summarizer=summarize):
+def diagnose(mailbox, config, uid, classify=disposition.classify, expected_validity=None, *,
+             summarize=disposition.summarize):
     """Replay reading and local classification for one UID without mutations."""
     uid = uid_value(uid)
     validity = uid_value(mailbox.validity)
@@ -27,9 +27,9 @@ def diagnose(mailbox, config, uid, classifier=classify, expected_validity=None, 
             mail = replace(mail, sent_date=mailbox.internal_date(uid))
         context_bound_mail = fit_to_context(mail, MAIL_PAYLOAD_BYTES)
         stage = 'summarize'
-        summary = summarizer(context_bound_mail)
+        summary = summarize(context_bound_mail)
         stage = 'classify'
-        classifier(context_bound_mail, summary)
+        classify(context_bound_mail, summary)
         log.info('mail_diagnosis_completed uid=%s uidvalidity=%s stage=classify', uid, validity)
         return 0
     except Exception as exc:
@@ -38,9 +38,8 @@ def diagnose(mailbox, config, uid, classifier=classify, expected_validity=None, 
         return 1
 
 
-def poll(mailbox, config, classifier=classify, event_processor=process_events, *, summarizer=summarize,
-         extractor=None, runner=None):
-    extractor = extract_events if extractor is None else extractor
+def poll(mailbox, config, classify=disposition.classify, process_events=event_pipeline.process_events, *,
+         summarize=disposition.summarize, extract_event_candidates=events.extract_event_candidates, runner=None):
     failures = 0; completed = 0
     log.info('mail_poll_started')
     try:
@@ -62,10 +61,10 @@ def poll(mailbox, config, classifier=classify, event_processor=process_events, *
             context_bound_mail = fit_to_context(parsed_mail, MAIL_PAYLOAD_BYTES)
             stage = 'summarize'
             log.info('mail_item_action item=%d uid=%s stage=summarize', index, uid)
-            summary = summarizer(context_bound_mail)
+            summary = summarize(context_bound_mail)
             stage = 'classify'
             log.info('mail_item_action item=%d uid=%s stage=classify', index, uid)
-            destination = classifier(context_bound_mail, summary)
+            destination = classify(context_bound_mail, summary)
 
             # Validate the mandatory notification before optional side effects.
             stage = 'notify'
@@ -80,21 +79,24 @@ def poll(mailbox, config, classifier=classify, event_processor=process_events, *
             if parsed_mail.sender_address.lower() == VULCAN_SENDER.lower():
                 delegate_to_vulcan_handler(uid, raw_mail, config)
 
-            # Optional: Calendar enrichment (best-effort)
+            # Optional: Calendar enrichment (best-effort); prepared events become attachments
             log.info('mail_item_action item=%d uid=%s stage=events', index, uid)
+            attachments = []
             try:
-                extracted_events = extractor(context_bound_mail)
-                event_result = event_processor(extracted_events, config)
-                for entry in event_result['results']:
+                event_candidates = extract_event_candidates(context_bound_mail)
+                # Consume incrementally so attachments yielded before a later failure are kept.
+                for result in process_events(event_candidates, config):
                     log.info('mail_event_result uid=%s index=%d outcome=%s reason=%s',
-                             uid, entry['index'], entry['outcome'], entry['reason'])
+                             uid, result.index, result.outcome, result.reason)
+                    if result.attachment is not None:
+                        attachments.append(result.attachment)
             except Exception as exc:
                 log.error('mail_event_failed uid=%s error=%s%s', uid, error_code(exc), error_suffix(exc))
 
             # Send to Discord; failure blocks disposition
             stage = 'send'
             log.info('mail_item_action item=%d uid=%s stage=send', index, uid)
-            deliver(runner, config, notification)
+            deliver(runner, config, notification, attachments)
 
             # Apply disposition only after successful send
             stage = 'disposition'

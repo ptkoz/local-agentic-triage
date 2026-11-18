@@ -76,8 +76,8 @@ two to boolean true and create to false. A false candidate enters completion
 with all extracted fields unchanged.
 Completion returns one full event and is not allowed to alter directly supplied
 values or invent a location. Python validates each completed event's structure,
-authorization, interval, and temporal eligibility immediately before its individual
-write. Event payloads are rejected before the model when their conservative context
+authorization, interval, and temporal eligibility immediately before preparing its
+individual iCalendar attachment; triage never writes to Calendar. Event payloads are rejected before the model when their conservative context
 budgets would be exceeded; nearby rows are never truncated. See architecture.md for
 the five contracts.
 
@@ -85,10 +85,15 @@ An event exception or invalid canonical event result produces one
 `mail_event_failed uid=... error=...` line, optionally with a bounded numeric
 `returncode`. This is optional-enrichment telemetry: it does not produce a
 second `mail_item_failed` line, make the poll fail, or prevent leave/archive.
+Per-candidate `mail_event_result` lines report `prepared`, `duplicate`, or
+`skipped` with a fixed reason. A `mail_attachment_failed error=...` line means
+prepared attachments could not be materialized and the notification was sent
+without them; `mail_attachment_cleanup_failed` means a private temporary
+attachment directory could not be removed after the send.
 Summary, destination, read, notification rendering/delivery, and disposition
 errors remain fatal and retryable.
 
-Before trusting a result, compare the installed zipapp with the reviewed repository version or confirm the deployed commit. The implementation in `classifier/resources.py`, `classifier/disposition.py`, `classifier/events.py`, `classifier/transport.py`, `classifier/input.py`, `mail/event_pipeline.py`, `events/calendar.py`, `mail/pipeline.py`, and `mail/imap.py` is normative documentation for the exact boundaries above. `classifier/resources.py` is the single owner and loader of all five function-named prompt and output-schema resources; `classifier/transport.py` contains transport and limits only.
+Before trusting a result, compare the installed zipapp with the reviewed repository version or confirm the deployed commit. The implementation in `classifier/resources.py`, `classifier/disposition.py`, `classifier/events.py`, `classifier/transport.py`, `classifier/input.py`, `mail/event_pipeline.py`, `events/calendar.py`, `events/ical.py`, `reporting/report.py`, `mail/pipeline.py`, and `mail/imap.py` is normative documentation for the exact boundaries above. `classifier/resources.py` is the single owner and loader of all five operation-named prompt and output-schema resources; `classifier/transport.py` contains transport and limits only.
 
 ## Reporting an investigation
 

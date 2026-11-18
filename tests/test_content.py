@@ -111,7 +111,7 @@ class ContentTests(unittest.TestCase):
             summary=summarize(mail)
             result=classify(mail,summary)
             from local_agentic_triage.classifier import events
-            events.extract_events(mail)
+            events.extract_event_candidates(mail)
         requests=[json.loads(c.args[0].data) for c in call.call_args_list]
         self.assertEqual([r['messages'][1]['content'] for r in requests],[
             source,'{"summary": "Syntetyczny opis.", "mail": {"metadata": {"sent_date": "2025-01-01T12:00:00+01:00", "sender": "Zoża <sender@example.invalid>", "subject": "Synthetic"}, "body": "Synthetic body"}}',source])
@@ -219,7 +219,7 @@ class ContentTests(unittest.TestCase):
         with patch.object(classifier_transport,'chat_completion',side_effect=[
                 {'summary':'Opis.'},{'destination':'leave'},{'events':[]}]) as chat:
             classify(context_bound_mail,summarize(context_bound_mail))
-            events.extract_events(context_bound_mail)
+            events.extract_event_candidates(context_bound_mail)
         source=classifier_input.serialize_mail(context_bound_mail)
         summary_content,destination_content,extraction_content=(
             c.args[0][1]['content'] for c in chat.call_args_list)

@@ -41,8 +41,9 @@ class SeparationTests(unittest.TestCase):
             name for name, value in inspect.getmembers(events, inspect.isfunction)
             if value.__module__ == events.__name__ and not name.startswith('_')
         }
-        self.assertEqual(public_functions, {'extract_events', 'is_duplicate', 'complete_event'})
-        self.assertEqual(events.__all__, ('extract_events', 'is_duplicate', 'complete_event'))
+        self.assertEqual(public_functions, {'extract_event_candidates', 'is_duplicate', 'complete_event'})
+        self.assertEqual(events.__all__, ('extract_event_candidates', 'is_duplicate', 'complete_event'))
+        self.assertFalse(hasattr(events, 'extract_events'))
         tree = ast.parse(Path(events.__file__).read_text(encoding='utf-8'))
         imports = [ast.unparse(node) for node in ast.walk(tree)
                    if isinstance(node, (ast.Import, ast.ImportFrom))]
@@ -78,6 +79,54 @@ class SeparationTests(unittest.TestCase):
                            if isinstance(node, ast.ImportFrom)
                            for alias in node.names if alias.name.startswith('_')]
         self.assertEqual(private_imports, [])
+
+    def test_reporting_delivers_attachments_without_domain_imports(self):
+        tree = ast.parse((PACKAGE / 'reporting/report.py').read_text(encoding='utf-8'))
+        imports = [ast.unparse(node) for node in ast.walk(tree)
+                   if isinstance(node, (ast.Import, ast.ImportFrom))]
+        for domain in ('classifier', 'local_agentic_triage.events', 'local_agentic_triage.mail'):
+            self.assertFalse(any(domain in item for item in imports), domain)
+
+    def test_ical_export_has_explicit_public_surface(self):
+        from local_agentic_triage.events import ical
+        self.assertEqual(ical.__all__, ('ical_event',))
+
+    def test_poll_and_diagnose_inject_callables_under_their_own_names(self):
+        from local_agentic_triage.classifier import disposition, events
+        from local_agentic_triage.mail import event_pipeline, pipeline
+        poll = inspect.signature(pipeline.poll).parameters
+        self.assertEqual(list(poll), ['mailbox', 'config', 'classify', 'process_events', 'summarize',
+                                      'extract_event_candidates', 'runner'])
+        diagnose = inspect.signature(pipeline.diagnose).parameters
+        self.assertEqual(list(diagnose), ['mailbox', 'config', 'uid', 'classify', 'expected_validity', 'summarize'])
+        for parameters in (poll, diagnose):
+            self.assertIs(parameters['classify'].default, disposition.classify)
+            self.assertIs(parameters['summarize'].default, disposition.summarize)
+        self.assertIs(poll['process_events'].default, event_pipeline.process_events)
+        self.assertIs(poll['extract_event_candidates'].default, events.extract_event_candidates)
+        tree = ast.parse((PACKAGE / 'mail/pipeline.py').read_text(encoding='utf-8'))
+        names = ({node.arg for node in ast.walk(tree) if isinstance(node, ast.arg)}
+                 | {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
+                 | {alias.asname or alias.name for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
+                    for alias in node.names})
+        for alias in ('classifier', 'summarizer', 'extractor', 'event_processor', 'extract_events'):
+            self.assertNotIn(alias, names)
+        poll_tree = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == 'poll')
+        called = {node.func.id for node in ast.walk(poll_tree)
+                  if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)}
+        self.assertLessEqual({'summarize', 'classify', 'extract_event_candidates', 'process_events'}, called)
+
+    def test_attachment_is_a_frozen_dependency_neutral_value(self):
+        import dataclasses
+        from local_agentic_triage.common import attachment
+        self.assertEqual(attachment.__all__, ('Attachment',))
+        self.assertEqual([field.name for field in dataclasses.fields(attachment.Attachment)], ['filename', 'content'])
+        value = attachment.Attachment('event-1.ics', 'content')
+        with self.assertRaises(dataclasses.FrozenInstanceError):
+            value.content = 'other'
+        tree = ast.parse((PACKAGE / 'common/attachment.py').read_text(encoding='utf-8'))
+        self.assertFalse(any('local_agentic_triage' in ast.unparse(node) for node in ast.walk(tree)
+                             if isinstance(node, (ast.Import, ast.ImportFrom))))
 
     def test_common_json_boundaries(self):
         from local_agentic_triage.common.json import compact_json, strict_json

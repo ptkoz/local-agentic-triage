@@ -109,8 +109,8 @@ class VulcanTests(unittest.TestCase):
         raw = raw_from(sender)
         box.candidates.return_value = ['9']
         box.raw.return_value = raw
-        summarizer = Mock(return_value='synthetic summary')
-        classifier = Mock(return_value=destination)
+        summarize = Mock(return_value='synthetic summary')
+        classify = Mock(return_value=destination)
         captured = []
 
         def spawn(*args, **kwargs):
@@ -123,21 +123,20 @@ class VulcanTests(unittest.TestCase):
         runner = Mock(return_value=Mock(returncode=0))
         with patch('os.posix_spawn', side_effect=spawn) as run, \
              self.assertLogs('local_agentic_triage', level='INFO') as logs:
-            status = poll(box, make_config(), classifier,
-                          Mock(return_value={'status': 'ok', 'results': []}),
-                          summarizer=summarizer, extractor=lambda mail: [], runner=runner)
+            status = poll(box, make_config(), classify, Mock(return_value=iter([])),
+                          summarize=summarize, extract_event_candidates=lambda mail: [], runner=runner)
         run.stdin_bytes = captured
-        return status, box, classifier, run, raw, '\n'.join(logs.output)
+        return status, box, classify, run, raw, '\n'.join(logs.output)
 
     def test_matching_parsed_sender_delegates_exact_raw_after_classification(self):
         for sender in (b'noreply@vulcan.net.pl', b'NoReply@VULCAN.NET.PL',
                        b'Dziennik VULCAN <noreply@vulcan.net.pl>'):
             for destination in ('leave', 'archive'):
                 with self.subTest(sender=sender, destination=destination):
-                    status, box, classifier, run, raw, logs = self.run_poll(sender, destination=destination)
+                    status, box, classify, run, raw, logs = self.run_poll(sender, destination=destination)
                     self.assertEqual(status, 0)
                     self.assertEqual(run.stdin_bytes, [raw])
-                    classifier.assert_called_once()
+                    classify.assert_called_once()
                     getattr(box, destination).assert_called_once_with('9')
                     self.assertIn('INFO:local_agentic_triage:agentic_vulcan_started uid=9 result=started', logs)
                     self.assertNotIn('private', logs)
@@ -146,21 +145,21 @@ class VulcanTests(unittest.TestCase):
         for sender in (b'noreply@vulcan.net.pl.evil.invalid', b'xnoreply@vulcan.net.pl',
                        b'other@example.invalid', b'Dziennik <noreply@vulcan.net.pl.evil.invalid>'):
             with self.subTest(sender=sender):
-                status, box, classifier, run, raw, logs = self.run_poll(sender)
+                status, box, classify, run, raw, logs = self.run_poll(sender)
                 self.assertEqual(status, 0)
                 run.assert_not_called()
-                classifier.assert_called_once()
+                classify.assert_called_once()
                 self.assertNotIn('agentic_vulcan', logs)
 
     def test_failure_logs_fixed_result_and_triage_continues(self):
         for outcome in (OSError('private'),):
             for destination in ('leave', 'archive'):
                 with self.subTest(outcome=repr(outcome)[:30], destination=destination):
-                    status, box, classifier, run, raw, logs = self.run_poll(
+                    status, box, classify, run, raw, logs = self.run_poll(
                         b'noreply@vulcan.net.pl', outcome, destination)
                     self.assertEqual(status, 0)
                     self.assertIn('ERROR:local_agentic_triage:agentic_vulcan_failed uid=9 result=failed', logs)
                     self.assertNotIn('private', logs)
                     self.assertNotIn('agentic_vulcan_started', logs)
-                    classifier.assert_called_once()
+                    classify.assert_called_once()
                     getattr(box, destination).assert_called_once_with('9')

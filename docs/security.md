@@ -26,8 +26,9 @@ Summary generation receives bounded mail JSON. Destination classification receiv
 the generated summary and the same bounded mail as separate untrusted fields. Sparse
 extraction independently receives the bounded mail without either classification
 output. Later duplicate checking receives the complete extracted event unchanged and
-minimal nearby title/start/end/all_day/location rows from the configured calendar,
-without mail provenance. No completed or guessed value can enter duplicate checking.
+minimal nearby title/start/end/all_day/location rows freshly read from the configured
+calendar, without mail provenance. Other candidates from the same mail never enter
+duplicate checking, and no completed or guessed value can enter duplicate checking.
 Completion receives the complete extracted event without nearby rows, must preserve
 directly supplied fields, and may fill missing values only from supported evidence.
 
@@ -41,21 +42,38 @@ preserve supplied event fields are independently enforced in Python. Event and n
 payloads fail closed over budget rather than truncate evidence.
 
 Summary, destination, rendering, and Discord-delivery failures remain fatal and
-retryable. Extraction, duplicate, completion, eduVULCAN, and Calendar failures are
-optional and do not block notification or disposition. Events
+retryable. Extraction, duplicate, completion, eduVULCAN, Calendar, and attachment
+failures are optional and do not block notification or disposition. Events
 are processed sequentially; each completion result is fully validated immediately
-before its own Calendar write, and that write is exactly read back before processing
-the next candidate. No model stage has write authority. Fixed JXA reads only the
-configured calendar and creates validated events there, then verifies exact
-title/start/end/all-day/location values by readback. Calendar
-and Discord commands use argument lists, shell=False, stdin data, captured output,
-checked exit status, and timeouts. Hermes sends rendered notification text without an LLM.
+before its own iCalendar attachment is prepared. No model stage has write authority,
+and triage has no Calendar write capability: fixed JXA accepts only the search
+operation, reads only the configured calendar, and has no create, edit, or delete
+path. Calendar and Discord commands use argument lists, shell=False, stdin data,
+captured output, checked exit status, and timeouts. Hermes sends rendered notification
+text without an LLM.
 
-Calendar search alone normalizes a known equal-date one-day all-day adapter row
-to an exclusive next-day end; create readback is never normalized.
-All untrusted values use stdin JSON, never executable JXA interpolation. No
-Calendar edits/deletes, attendees, alarms, or notes are exposed. A validated optional
-location may be created and verified.
+Calendar search normalizes a known equal-date one-day all-day adapter row to an
+exclusive next-day end. All untrusted values use stdin JSON, never executable JXA
+interpolation.
+
+Each prepared event becomes one RFC 5545 VCALENDAR document with CRLF lines,
+escaped and folded TEXT values, UTC timed or VALUE=DATE all-day DTSTART/DTEND,
+and a UID derived from a hash of the candidate index within the mail and the validated
+title, interval, all-day flag, and location, so identical candidates from one mail never
+share a UID. Attendees, alarms, notes, and descriptions are never exported. The
+document is private event content: it is never logged or passed in argv. For
+delivery only, each attachment is written to a fixed-pattern filename in a fresh
+0700 temporary directory as a 0600 file, referenced from Hermes stdin, and the
+directory is removed after the send, whether it succeeds or fails. If attachments
+cannot be materialized, the notification is sent without them and only a fixed
+`mail_attachment_failed` code is logged.
+
+Hermes treats `MEDIA:` anywhere in its stdin, in any case, as a local-file attachment
+directive. Before trusted attachment lines are appended, every `MEDIA:` in the rendered
+notification (which carries untrusted sender and summary text) has its colon replaced by
+a same-length lookalike, with or without attachments. Only the generated bare
+`MEDIA:<path>` lines for freshly materialized files remain directives; text without
+`MEDIA:` is sent unchanged.
 
 Every mail read/store/move has a fresh SELECT UIDVALIDITY and exact UID-existence
 guard immediately before the operation. Separate Himalaya CLI sessions
